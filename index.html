@@ -134,11 +134,6 @@ table.opts tr.clickable:hover td, table.opts tr.sel td { background: var(--raise
         <span class="spacer"></span>
         <label class="check" id="allOptsLbl"><input type="checkbox" id="allOpts"> Show make % for every pot</label>
       </div>
-      <section class="history" id="history" aria-label="Rack history" hidden>
-        <div class="history-head"><span class="eyebrow">Rack history</span><span class="hint">Click a shot to go back to it. Faded shots were undone.</span></div>
-        <div class="hchips" id="hchips"></div>
-        <div class="hview" id="hview" hidden></div>
-      </section>
       <div class="legend" aria-label="Line legend">
         <span><svg width="26" height="8"><line x1="0" y1="4" x2="26" y2="4" stroke="currentColor" stroke-width="2" stroke-dasharray="4 3"/></svg>Cue ball to contact point</span>
         <span><svg width="26" height="8"><line x1="0" y1="4" x2="26" y2="4" stroke="currentColor" stroke-width="2"/></svg>Object ball to pocket</span>
@@ -148,6 +143,11 @@ table.opts tr.clickable:hover td, table.opts tr.sel td { background: var(--raise
 
     <div class="side">
       <div class="status-bar" aria-live="polite"><p class="status" id="status">Loading table…</p></div>
+      <section class="history" id="history" aria-label="Rack history" hidden>
+        <div class="history-head"><span class="eyebrow">Rack history</span><span class="hint">Click a shot to go back to it. Faded shots were undone.</span></div>
+        <div class="hchips" id="hchips"></div>
+        <div class="hview" id="hview" hidden></div>
+      </section>
       <div class="seg tabs" role="tablist" aria-label="Panels">
         <button type="button" role="tab" id="tabCall" aria-controls="callPanel" aria-selected="true">Your call</button>
         <button type="button" role="tab" id="tabCoach" aria-controls="coach" aria-selected="false">Coach<span class="dot" id="coachDot" hidden></span></button>
@@ -1000,10 +1000,12 @@ function renderCoach() {
   }
   if (isKick()) { el.innerHTML = renderKick(); return; }
   if (runView && !reviewing) { el.innerHTML = renderRun(); return; }
-  const reviewBtn = (lastShot && !busy ? `<div class="actions"><button type="button" id="reviewBtn">What did the coach think of my last shot?</button>${inning.length > 1 ? `<button type="button" id="runBtn">Review my whole run (${inning.length} shots)</button>` : ''}</div>` : '');
-  if (analyzing) { el.innerHTML = coachHead('Coach') + '<p class="thinking">Simulating every option…</p>' + reviewBtn; return; }
+  const lastCard = lastShot ? `<div class="yours"><span class="eyebrow">Last shot · shot ${lastShot.n}</span><p>${callText(lastShot.call)} · ${outcomeText(lastShot) || '…'}</p></div>` : '';
+  const askHere = !turnOver && !busy && !analyzing && analysis ? '<div class="actions"><button type="button" id="askHere" class="primary">Ask about this position</button></div>' : '';
+  const reviewBtn = (lastShot && !busy ? `<div class="actions"><button type="button" id="reviewBtn">Review shot ${lastShot.n}</button>${inning.length > 1 ? `<button type="button" id="runBtn">Review my whole run (${inning.length} shots)</button>` : ''}</div>` : '');
+  if (analyzing) { el.innerHTML = coachHead('Coach') + lastCard + reviewBtn + '<p class="thinking">Simulating every option…</p>'; return; }
   if (!revealed || !analysis) {
-    el.innerHTML = coachHead('Coach') + `<p class="thinking">${turnOver ? 'Turn over. Retry the last shot or rack a new table.' : 'Make your call first, then ask the coach.'}</p>` + reviewBtn;
+    el.innerHTML = coachHead('Coach') + (turnOver ? '<p class="thinking">Turn over. Undo the shot, go back to any shot in Rack history, or rack a new table.</p>' : askHere || '<p class="thinking">Make your call on the Your call tab, then ask the coach.</p>') + lastCard + reviewBtn;
     return;
   }
   let html = coachHead(reviewing && reviewRec ? `Coach · shot ${reviewRec.n}` : 'Coach');
@@ -1075,6 +1077,7 @@ $('coach').addEventListener('click', e => {
   else if (e.target.closest('tr[data-shot]')) enterReview(inning[+e.target.closest('tr[data-shot]').dataset.shot], true);
   else if (e.target.closest('#backBtn')) exitReview();
   else if (e.target.closest('#coachShot')) playCoach();
+  else if (e.target.closest('#askHere')) $('askBtn').click();
   else if (e.target.closest('#replayMine')) replay('mine');
   else if (e.target.closest('#replayCoach')) replay('coach');
   else if (e.target.closest('#kickReveal')) { revealed = true; renderCoach(); draw(); }
@@ -1115,7 +1118,7 @@ function exitReview(silent) {
   buildSegs();
   $('callText').textContent = callText(); $('safeBtn').setAttribute('aria-pressed', String(call.safety));
   setStatus(saved.status); saved = null;
-  if (!silent) { runView = reviewFromRun; if (!reviewFromRun) showTab('call'); }
+  if (!silent) runView = reviewFromRun;
   reviewFromRun = false; reviewRec = null;
   renderCoach(); updateButtons(); draw();
 }
@@ -1472,7 +1475,6 @@ function run(angle, v, s, ctxInfo) {
   if (isKick()) lastKick = { cue: { ...state.balls[0] }, firstHit: r.firstHit, gap: Math.max(0, r.minGap), rail: r.firstRail ? railByKey(r.firstRail.side) : null,
     diamond: r.firstRail ? diamondOf(railByKey(r.firstRail.side), r.firstRail) : 0, hit: r.firstHit === KICK_T && r.cueRails >= 1 };
   busy = true; preview = null; updateButtons();
-  showTab('call');
   setStatus('Shooting…');
   const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   anim = { frames: r.frames, i: 0 };
