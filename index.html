@@ -1,0 +1,1049 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Shot Caller</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: table on the left as the working surface, coach panel on the right; stacks on phones. */
+:root {
+  --bg: #e9eeeb;
+  --surface: #f8faf9;
+  --fg: #18211d;
+  --muted: #56655e;
+  --line: #cfd8d3;
+  --accent: #2c67a8;          /* chalk blue */
+  --accent-fg: #ffffff;
+  --good: #23784a;
+  --warn: #9a6512;
+  --bad: #b5352a;
+  --good-bg: #dcefe3;
+  --warn-bg: #f5ead6;
+  --bad-bg: #f6dfdc;
+  --font-display: "Alfa Slab One", "Rockwell", Georgia, serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111714; --surface: #18201c; --fg: #e3eae6; --muted: #93a39a; --line: #2b3731;
+    --accent: #78aee8; --accent-fg: #0d1520;
+    --good: #63c588; --warn: #e2aa4f; --bad: #ec7468;
+    --good-bg: #1b3326; --warn-bg: #36291353; --bad-bg: #3a1d1a;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111714; --surface: #18201c; --fg: #e3eae6; --muted: #93a39a; --line: #2b3731;
+  --accent: #78aee8; --accent-fg: #0d1520;
+  --good: #63c588; --warn: #e2aa4f; --bad: #ec7468;
+  --good-bg: #1b3326; --warn-bg: #36291353; --bad-bg: #3a1d1a;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.5; }
+.wrap { max-width: 1240px; margin: 0 auto; padding-inline: 20px; padding-block: 24px 48px; display: grid; gap: 20px; }
+header { display: grid; gap: 4px; }
+h1 { font-family: var(--font-display); font-weight: 400; font-size: clamp(28px, 4vw, 40px); margin: 0; letter-spacing: 0.01em; text-wrap: balance; }
+.tagline { margin: 0; color: var(--muted); max-width: 62ch; }
+.app { display: grid; gap: 20px; grid-template-columns: minmax(0, 1fr); align-items: start; }
+@media (min-width: 980px) { .app { grid-template-columns: minmax(0, 1.65fr) minmax(320px, 1fr); } }
+.table-col { display: grid; gap: 12px; min-width: 0; }
+#tableWrap { position: relative; width: 100%; }
+canvas { display: block; width: 100%; border-radius: 14px; touch-action: none; cursor: crosshair; box-shadow: 0 10px 30px rgba(0,0,0,0.18); }
+.toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.toolbar .spacer { flex: 1; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend svg { flex: none; }
+button { font: inherit; font-weight: 500; border: 1px solid var(--line); background: var(--surface); color: var(--fg); padding: 7px 14px; border-radius: 8px; cursor: pointer; }
+button:hover:not(:disabled) { border-color: var(--accent); }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button:disabled { opacity: 0.45; cursor: not-allowed; }
+button.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+label.check { display: inline-flex; gap: 6px; align-items: center; font-size: 14px; color: var(--muted); cursor: pointer; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 18px; display: grid; gap: 14px; min-width: 0; }
+.side { display: grid; gap: 16px; min-width: 0; }
+.eyebrow { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin: 0; }
+.status { font-size: 15px; margin: 0; }
+.status strong { font-weight: 600; }
+.call-box { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; border: 1px dashed var(--line); border-radius: 10px; }
+#callText { font-weight: 600; }
+.row { display: grid; gap: 6px; }
+.seg { display: flex; flex-wrap: wrap; gap: 6px; }
+.seg button { flex: 1 1 auto; padding: 6px 10px; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.actions button { flex: 1 1 140px; }
+.hint { font-size: 13px; color: var(--muted); margin: 0; }
+.stats { font-family: var(--font-mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.pill { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 10px; border-radius: 99px; }
+.pill.good { background: var(--good-bg); color: var(--good); }
+.pill.warn { background: var(--warn-bg); color: var(--warn); }
+.pill.bad { background: var(--bad-bg); color: var(--bad); }
+.pick { font-family: var(--font-display); font-size: 20px; line-height: 1.25; margin: 0; text-wrap: balance; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font-family: var(--font-mono); font-size: 12px; border: 1px solid var(--line); border-radius: 6px; padding: 1px 8px; }
+ul.reasons { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+.yours { border-top: 1px solid var(--line); padding-top: 12px; display: grid; gap: 6px; }
+.yours p { margin: 0; }
+.opts-scroll { overflow-x: auto; }
+table.opts { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+table.opts th { text-align: left; font-weight: 500; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; padding: 4px 6px; border-bottom: 1px solid var(--line); }
+table.opts td { padding: 6px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+table.opts tr.clickable { cursor: pointer; }
+table.opts tr.clickable:hover td, table.opts tr.sel td { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.num { font-family: var(--font-mono); }
+.g { color: var(--good); } .w { color: var(--warn); } .b { color: var(--bad); }
+.muted { color: var(--muted); }
+.thinking { color: var(--muted); font-style: italic; margin: 0; }
+.notes { display: grid; gap: 14px; }
+.notes h2 { font-family: var(--font-display); font-weight: 400; font-size: 22px; margin: 0; }
+.notes-grid { display: grid; gap: 12px 28px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+.note h3 { font-size: 15px; margin: 0 0 2px; font-weight: 600; }
+.note p { margin: 0; color: var(--muted); max-width: 60ch; }
+@media (max-width: 520px) { .wrap { padding-inline: 16px; } .panel { padding: 14px; } }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <h1>Shot Caller</h1>
+    <p class="tagline">Play 8-ball or 9-ball. Read the table and call your shot: which ball, which pocket, what spin, what speed, or a safety. Then ask the coach. It simulates every option and tells you what it would play and why.</p>
+  </header>
+
+  <div class="app">
+    <div class="table-col">
+      <div id="tableWrap"><canvas id="table" aria-label="Pool table. Click one of your balls, then a pocket. Drag to aim freely."></canvas></div>
+      <div class="toolbar">
+        <button id="newBtn" type="button">New rack</button>
+        <button id="retryBtn" type="button" disabled>Retry last shot</button>
+        <span class="spacer"></span>
+        <label class="check"><input type="checkbox" id="allOpts"> Show make % for every pot</label>
+      </div>
+      <div class="legend" aria-label="Line legend">
+        <span><svg width="26" height="8"><line x1="0" y1="4" x2="26" y2="4" stroke="currentColor" stroke-width="2" stroke-dasharray="4 3"/></svg>Cue ball to contact point</span>
+        <span><svg width="26" height="8"><line x1="0" y1="4" x2="26" y2="4" stroke="currentColor" stroke-width="2"/></svg>Object ball to pocket</span>
+        <span><svg width="26" height="8"><line x1="0" y1="4" x2="26" y2="4" stroke="currentColor" stroke-width="2" stroke-dasharray="1 3" stroke-linecap="round"/></svg>Where the cue ball travels</span>
+      </div>
+    </div>
+
+    <div class="side">
+      <section class="panel" aria-labelledby="callHead">
+        <div class="seg" id="modeSeg" role="group" aria-label="Game"></div>
+        <p class="eyebrow" id="callHead">Your turn · you are solids (1–7)</p>
+        <p class="status" id="status">Loading table…</p>
+        <div class="call-box">
+          <span><span class="muted">Your call: </span><span id="callText">nothing yet</span></span>
+          <button id="safeBtn" type="button" aria-pressed="false">Play safe</button>
+        </div>
+        <div class="row">
+          <span class="eyebrow">Spin</span>
+          <div class="seg" id="spinSeg"></div>
+        </div>
+        <div class="row">
+          <span class="eyebrow">Speed</span>
+          <div class="seg" id="speedSeg"></div>
+        </div>
+        <div class="actions">
+          <button id="askBtn" class="primary" type="button">Ask the coach</button>
+          <button id="shootBtn" type="button">Shoot my call</button>
+        </div>
+        <p class="hint">Click one of your balls, then a pocket. Or drag on the table to aim anywhere. Speed is in table lengths the cue ball would roll: soft ≈ ½, medium ≈ 1¼, firm ≈ 2, hard ≈ 3½.</p>
+        <div class="stats" id="stats">Calls graded: 0</div>
+      </section>
+
+      <section class="panel" id="coach" aria-live="polite">
+        <p class="eyebrow">Coach</p>
+        <p class="thinking">Make your call first, then ask the coach.</p>
+      </section>
+    </div>
+  </div>
+
+  <section class="notes" aria-labelledby="notesHead">
+    <h2 id="notesHead">What the coach is weighing</h2>
+    <div class="notes-grid">
+      <div class="note"><h3>The pot sets up the next pot</h3><p>The best shot is rarely the easiest one. Pick the ball and pocket that leave a makeable angle on your next ball. The coach scores every shot as make chance × quality of the leave.</p></div>
+      <div class="note"><h3>Cut angle and distance</h3><p>Make chance drops with cue-to-ball distance times ball-to-pocket distance, and falls fast as the cut gets thinner. A 60° cut from across the table is a low-percentage shot for anyone.</p></div>
+      <div class="note"><h3>Stun first, spin when needed</h3><p>Stun is the most predictable shot. On a cut, a stunned cue ball leaves at 90° to the object ball's path. Follow bends it forward (about 30° off its line on a half-ball hit). Draw bends it back, and it weakens over distance.</p></div>
+      <div class="note"><h3>A little angle is good</h3><p>Dead straight leaves only forward or back. A slight angle lets you send the cue ball anywhere along the tangent line, so aim to leave yourself 10–30° cuts.</p></div>
+      <div class="note"><h3>Speed beats spin</h3><p>Most position errors are speed errors. Soft and medium shots are more accurate. Hard shots cost make percentage and scatter the cue ball.</p></div>
+      <div class="note"><h3>When to play safe</h3><p>If your best pot is under about 45% and a miss would leave your opponent open, play a safety. Hit your own ball first, get a ball to a rail, and leave the cue ball where they have no clear shot.</p></div>
+      <div class="note"><h3>Solve problems early</h3><p>Balls frozen together or stuck on a rail get harder as the table empties. Break clusters while you still have other balls to fall back on.</p></div>
+      <div class="note"><h3>9-ball is a position game</h3><p>You must hit the lowest ball first, so you never choose the ball. You choose the pocket, spin and speed that get you on the next ball in order. Making the 9 on any legal shot wins, and a missed shot on a tough ball is often better played as a safety.</p></div>
+      <div class="note"><h3>Watch the scratch lines</h3><p>Before shooting, trace where the cue ball goes after contact. If that line runs at a pocket, change spin or speed. The coach flags spin and speed combos that scratch.</p></div>
+    </div>
+  </section>
+</div>
+
+<script id="engine">
+// ---------- Physics + strategy engine (table units are inches; 9 ft table = 100 × 50) ----------
+const W = 100, H = 50, R = 1.125, D = 2 * R;
+const DECEL = 6, CUSH_E = 0.72, BALL_E = 0.94, DT = 1 / 400;
+const CZ = 3.2, SZ = 2.4; // cushion gaps at corner and side pockets
+const POCKETS = [
+  { name: 'top-left corner', ax: 0.8, ay: 0.8, cx: -1, cy: -1, r: 3.1, side: 0 },
+  { name: 'top side', ax: W / 2, ay: -0.8, cx: W / 2, cy: -1.9, r: 2.9, side: -1 },
+  { name: 'top-right corner', ax: W - 0.8, ay: 0.8, cx: W + 1, cy: -1, r: 3.1, side: 0 },
+  { name: 'bottom-left corner', ax: 0.8, ay: H - 0.8, cx: -1, cy: H + 1, r: 3.1, side: 0 },
+  { name: 'bottom side', ax: W / 2, ay: H + 0.8, cx: W / 2, cy: H + 1.9, r: 2.9, side: 1 },
+  { name: 'bottom-right corner', ax: W - 0.8, ay: H - 0.8, cx: W + 1, cy: H + 1, r: 3.1, side: 0 },
+];
+const SPINS = [
+  { k: 'draw', s: -1.2, label: 'Draw' },
+  { k: 'stun', s: 0, label: 'Stun' },
+  { k: 'follow', s: 1, label: 'Follow' },
+];
+const SPEEDS = [
+  { k: 'soft', L: 0.6, label: 'Soft', f: 1 },
+  { k: 'medium', L: 1.3, label: 'Medium', f: 1 },
+  { k: 'firm', L: 2.2, label: 'Firm', f: 0.94 },
+  { k: 'hard', L: 3.5, label: 'Hard', f: 0.85 },
+];
+const SAFE_SPEEDS = [0.35, 0.7, 1.2];
+const SAFE_FRACS = [-0.85, -0.55, -0.25, 0, 0.25, 0.55, 0.85];
+
+const speedV = L => Math.sqrt(2 * DECEL * L * W);
+// Groups: 'solids' / 'stripes' for 8-ball, 'nine' for 9-ball (both players shoot the lowest ball).
+const groupIds = g => g === 'solids' ? [1, 2, 3, 4, 5, 6, 7] : g === 'stripes' ? [9, 10, 11, 12, 13, 14, 15] : [1, 2, 3, 4, 5, 6, 7, 8, 9];
+const otherGroup = g => g === 'solids' ? 'stripes' : g === 'stripes' ? 'solids' : 'nine';
+const lowestOn = balls => { for (let id = 1; id <= 9; id++) if (balls[id].on) return id; return -1; };
+
+function segDist(px, py, ax, ay, bx, by) {
+  const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
+  let t = l2 ? ((px - ax) * dx + (py - ay) * dy) / l2 : 0;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(px - ax - t * dx, py - ay - t * dy);
+}
+function railActiveX(x) { return x > CZ && x < W - CZ && Math.abs(x - W / 2) > SZ; }
+function railActiveY(y) { return y > CZ && y < H - CZ; }
+
+function simulate(balls, angle, v, spin, opts = {}) {
+  const n = 16;
+  const x = new Float64Array(n), y = new Float64Array(n), vx = new Float64Array(n), vy = new Float64Array(n);
+  const on = new Uint8Array(n), mv = new Uint8Array(n);
+  for (let i = 0; i < n; i++) { x[i] = balls[i].x; y[i] = balls[i].y; on[i] = balls[i].on ? 1 : 0; }
+  vx[0] = v * Math.cos(angle); vy[0] = v * Math.sin(angle); mv[0] = 1;
+  let firstHit = -1, rail = false, scratch = false, cueTravel = 0;
+  const potted = [];
+  const frames = opts.frames ? [] : null;
+  const cuePath = opts.cuePath ? [[x[0], y[0]]] : null;
+  const snap = () => {
+    const f = new Float32Array(32);
+    for (let i = 0; i < n; i++) { f[2 * i] = on[i] ? x[i] : NaN; f[2 * i + 1] = y[i]; }
+    frames.push(f);
+  };
+  if (frames) snap();
+  for (let step = 0; step < 12000; step++) {
+    let any = false;
+    for (let i = 0; i < n; i++) {
+      if (!on[i] || !mv[i]) continue;
+      const sp = Math.hypot(vx[i], vy[i]);
+      const ns = sp - DECEL * DT;
+      if (ns <= 0.02) { vx[i] = vy[i] = 0; mv[i] = 0; continue; }
+      any = true;
+      const f = ns / sp; vx[i] *= f; vy[i] *= f;
+      x[i] += vx[i] * DT; y[i] += vy[i] * DT;
+      if (i === 0 && firstHit < 0) cueTravel += ns * DT;
+    }
+    if (!any) break;
+    for (let i = 0; i < n; i++) {
+      if (!on[i] || !mv[i]) continue;
+      let hit = false;
+      if (x[i] < R && railActiveY(y[i])) { x[i] = 2 * R - x[i]; vx[i] = -vx[i] * CUSH_E; hit = true; }
+      else if (x[i] > W - R && railActiveY(y[i])) { x[i] = 2 * (W - R) - x[i]; vx[i] = -vx[i] * CUSH_E; hit = true; }
+      if (y[i] < R && railActiveX(x[i])) { y[i] = 2 * R - y[i]; vy[i] = -vy[i] * CUSH_E; hit = true; }
+      else if (y[i] > H - R && railActiveX(x[i])) { y[i] = 2 * (H - R) - y[i]; vy[i] = -vy[i] * CUSH_E; hit = true; }
+      if (hit && firstHit >= 0) rail = true;
+    }
+    for (let i = 0; i < n; i++) {
+      if (!on[i]) continue;
+      for (let j = i + 1; j < n; j++) {
+        if (!on[j] || (!mv[i] && !mv[j])) continue;
+        const dx = x[j] - x[i]; if (dx > D || dx < -D) continue;
+        const dy = y[j] - y[i]; if (dy > D || dy < -D) continue;
+        const d2 = dx * dx + dy * dy; if (d2 >= D * D || d2 === 0) continue;
+        const d = Math.sqrt(d2), nx = dx / d, ny = dy / d, ov = (D - d) / 2;
+        x[i] -= nx * ov; y[i] -= ny * ov; x[j] += nx * ov; y[j] += ny * ov;
+        const rel = (vx[i] - vx[j]) * nx + (vy[i] - vy[j]) * ny;
+        if (rel <= 0) continue;
+        const first = firstHit < 0 && i === 0;
+        const pvx = vx[0], pvy = vy[0];
+        const imp = rel * (1 + BALL_E) / 2;
+        vx[i] -= imp * nx; vy[i] -= imp * ny; vx[j] += imp * nx; vy[j] += imp * ny;
+        mv[i] = 1; mv[j] = 1;
+        if (first) {
+          firstHit = j;
+          // Spin takes over after contact: the cue ball keeps its tangent speed, then
+          // friction blends in the spin (follow pushes forward, draw pulls back).
+          const sp0 = Math.hypot(pvx, pvy);
+          if (sp0 > 0) {
+            let s = spin;
+            if (s < 0) s *= Math.max(0.3, 1 - cueTravel / 120);
+            const ux = pvx / sp0, uy = pvy / sp0;
+            vx[0] = 5 / 7 * vx[0] + 2 / 7 * s * sp0 * ux;
+            vy[0] = 5 / 7 * vy[0] + 2 / 7 * s * sp0 * uy;
+          }
+        }
+      }
+    }
+    for (let i = 0; i < n; i++) {
+      if (!on[i]) continue;
+      let pk = -1;
+      for (let k = 0; k < 6; k++) {
+        const p = POCKETS[k];
+        if (Math.hypot(x[i] - p.cx, y[i] - p.cy) < p.r) { pk = k; break; }
+      }
+      if (pk < 0 && (x[i] < -2.5 || x[i] > W + 2.5 || y[i] < -2.5 || y[i] > H + 2.5)) {
+        let bd = Infinity;
+        POCKETS.forEach((p, k) => { const dd = Math.hypot(x[i] - p.cx, y[i] - p.cy); if (dd < bd) { bd = dd; pk = k; } });
+      }
+      if (pk >= 0) {
+        on[i] = 0; mv[i] = 0; vx[i] = vy[i] = 0;
+        potted.push({ id: i, pk });
+        if (i === 0) scratch = true;
+        if (firstHit >= 0) rail = true;
+      }
+    }
+    if (frames && step % 6 === 0) snap();
+    if (cuePath && step % 10 === 0 && on[0]) cuePath.push([x[0], y[0]]);
+  }
+  if (frames) snap();
+  if (cuePath && on[0]) cuePath.push([x[0], y[0]]);
+  const out = [];
+  for (let i = 0; i < n; i++) out.push({ id: i, x: x[i], y: y[i], on: !!on[i] });
+  return { balls: out, firstHit, potted, scratch, rail, frames, cuePath };
+}
+
+// Geometry of a called shot: ghost-ball aim, cut angle, obstructions, and an estimated make chance.
+function shotGeom(cue, ob, pki, balls) {
+  const pk = POCKETS[pki];
+  let ux = pk.ax - ob.x, uy = pk.ay - ob.y;
+  const d2 = Math.hypot(ux, uy); ux /= d2; uy /= d2;
+  const gx = ob.x - ux * D, gy = ob.y - uy * D;
+  let vx = gx - cue.x, vy = gy - cue.y;
+  const d1 = Math.max(Math.hypot(vx, vy), 1e-6);
+  vx /= d1; vy /= d1;
+  const c = vx * ux + vy * uy;
+  const res = { t: ob.id, pk: pki, gx, gy, d1, d2, ok: false, angle: Math.atan2(vy, vx), cut: Math.acos(Math.max(-1, Math.min(1, c))) * 180 / Math.PI, p: 0 };
+  if (gx < R - 0.05 || gx > W - R + 0.05 || gy < R - 0.05 || gy > H - R + 0.05) { res.why = 'the rail blocks the contact point'; return res; }
+  if (res.cut > 78) { res.why = `a ${Math.round(res.cut)}° cut is too thin`; return res; }
+  let sideF = 1;
+  if (pk.side) {
+    const ang = Math.acos(Math.min(1, Math.abs(uy))) * 180 / Math.PI;
+    if (ang > 55) { res.why = 'too steep an angle into the side pocket'; return res; }
+    if (ang > 30) sideF = 1 - (ang - 30) / 45;
+  }
+  for (const b of balls) {
+    if (!b.on || b.id === 0 || b.id === ob.id) continue;
+    if (segDist(b.x, b.y, ob.x, ob.y, pk.ax, pk.ay) < D - 0.05) { res.why = `the ${b.id} blocks the path to the pocket`; res.blocker = b.id; return res; }
+    if (segDist(b.x, b.y, cue.x, cue.y, gx, gy) < D - 0.05) { res.why = `the ${b.id} is in the cue ball's way`; res.blocker = b.id; return res; }
+  }
+  const cc = Math.max(c, 0.2);
+  res.p = Math.exp(-1.6e-4 * Math.max(d1, 6) * Math.max(d2, 4) / (cc * cc)) * sideF;
+  res.ok = true;
+  return res;
+}
+
+function targetsFor(balls, group) {
+  if (group === 'nine') { const lo = lowestOn(balls); return lo > 0 ? [balls[lo]] : []; }
+  const ids = groupIds(group);
+  const own = balls.filter(b => b.on && ids.includes(b.id));
+  return own.length ? own : balls.filter(b => b.on && b.id === 8);
+}
+
+function bestShot(balls, group) {
+  if (!balls[0].on) return null;
+  let best = null;
+  for (const t of targetsFor(balls, group)) {
+    for (let k = 0; k < 6; k++) {
+      const g = shotGeom(balls[0], t, k, balls);
+      if (g.ok && (!best || g.p > best.p)) best = g;
+    }
+  }
+  return best;
+}
+
+function analyze(balls, group) {
+  const cue = balls[0];
+  const nine = group === 'nine';
+  const targets = targetsFor(balls, group);
+  const options = [];
+  for (const t of targets) {
+    for (let k = 0; k < 6; k++) {
+      const g = shotGeom(cue, t, k, balls);
+      const o = Object.assign({}, g, { variants: {}, best: null, scratchCombos: [] });
+      options.push(o);
+      if (!g.ok || g.p < 0.06) continue;
+      for (const sp of SPINS) for (const sd of SPEEDS) {
+        const r = simulate(balls, g.angle, speedV(sd.L), sp.s, { cuePath: true });
+        const made = r.potted.some(q => q.id === t.id && q.pk === k);
+        const v = { spin: sp.k, speed: sd.k, cuePath: r.cuePath, end: r.balls[0], made, scratch: r.scratch };
+        v.foul = r.firstHit !== t.id || r.scratch || (!nine && t.id !== 8 && r.potted.some(q => q.id === 8));
+        v.exec = g.p * sd.f * (sp.s ? 0.96 : 1);
+        if (made && r.scratch) o.scratchCombos.push(`${sp.label.toLowerCase()} at ${sd.label.toLowerCase()} speed`);
+        if (made && !v.foul) {
+          if (nine ? r.potted.some(q => q.id === 9) : t.id === 8) { v.leave = 1; v.win = true; }
+          else { const nb = bestShot(r.balls, group); v.leave = nb ? nb.p : 0; v.next = nb; }
+          v.score = v.exec * (0.3 + 0.7 * v.leave);
+        } else { v.leave = 0; v.score = 0; }
+        o.variants[sp.k + '|' + sd.k] = v;
+        if (!o.best || v.score > o.best.score) o.best = v;
+      }
+    }
+  }
+  const offense = options.filter(o => o.best && o.best.score > 0).sort((a, b) => b.best.score - a.best.score);
+
+  let safety = null;
+  const opp = otherGroup(group);
+  for (const t of targets) {
+    const base = Math.atan2(t.y - cue.y, t.x - cue.x);
+    const d = Math.hypot(t.x - cue.x, t.y - cue.y);
+    for (const f of SAFE_FRACS) {
+      if (Math.abs(f * D) >= d) continue;
+      const a = base + Math.asin(f * D / d);
+      for (const L of SAFE_SPEEDS) {
+        const r = simulate(balls, a, speedV(L), 0, { cuePath: true });
+        if (r.firstHit !== t.id || r.scratch || (!nine && r.potted.some(q => q.id === 8)) || !r.rail) continue;
+        const nb = bestShot(r.balls, opp);
+        const oppP = nb ? nb.p : 0;
+        const cand = { t: t.id, f, L, angle: a, oppP, oppNext: nb, cuePath: r.cuePath, end: r.balls[0], after: r.balls };
+        if (!safety || oppP < safety.oppP - 0.02 || (Math.abs(oppP - safety.oppP) <= 0.02 && L < safety.L)) safety = cand;
+      }
+    }
+  }
+  const top = offense[0];
+  let rec = 'shoot';
+  if (!top) rec = safety ? 'safety' : 'none';
+  else if (top.best.exec < 0.45 && safety && safety.oppP < 0.4) rec = 'safety';
+  return { options, offense, safety, rec };
+}
+</script>
+
+<script>
+// ---------- UI ----------
+const RAIL = 6;
+const canvas = document.getElementById('table');
+const ctx = canvas.getContext('2d');
+const $ = id => document.getElementById(id);
+const COLORS = { 1: '#ffdd00', 2: '#2b7bff', 3: '#ff2d2d', 4: '#a64dff', 5: '#ff8c00', 6: '#00d45a', 7: '#d4204f', 8: '#151515' };
+const ballColor = id => id === 0 ? '#f6f3e8' : COLORS[id > 8 ? id - 8 : id];
+const pct = p => Math.round(p * 100) + '%';
+const toneOf = p => p >= 0.65 ? 'g' : p >= 0.4 ? 'w' : 'b';
+const FELT_TONE = { g: '#86f0a6', w: '#ffd36b', b: '#ff8a7a' };
+const spinLabel = k => SPINS.find(s => s.k === k).label;
+const speedLabel = k => SPEEDS.find(s => s.k === k).label;
+const pocketName = k => POCKETS[k].name;
+const thickness = f => { const a = Math.abs(f); return a < 0.1 ? 'full' : a < 0.4 ? 'thick (about ¾ ball)' : a < 0.7 ? 'half-ball' : 'thin'; };
+
+let state = { balls: [], group: 'solids' };
+let analysis = null, analyzing = false;
+let call = { t: null, pk: null, safety: false, aim: null };
+let spin = 'stun', speed = 'medium';
+let revealed = false, preview = null, graded = false;
+let beforeShot = null, busy = false, anim = null, turnOver = false;
+let stats = { calls: 0, good: 0 };
+let drag = null, SC = 1;
+
+// ---------- Rack generation ----------
+function rnd(a, b) { return a + Math.random() * (b - a); }
+function shuffle(a) { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
+function genRack(mode) {
+  const balls = Array.from({ length: 16 }, (_, id) => ({ id, x: 0, y: 0, on: false }));
+  let ids;
+  if (mode === 'nine') {
+    ids = shuffle([...shuffle([1, 2, 3, 4, 5, 6, 7, 8]).slice(0, 3 + Math.floor(Math.random() * 4)), 9]).concat([0]);
+  } else {
+    const own = shuffle([1, 2, 3, 4, 5, 6, 7]).slice(0, 2 + Math.floor(Math.random() * 5));
+    const opp = shuffle([9, 10, 11, 12, 13, 14, 15]).slice(0, 2 + Math.floor(Math.random() * 5));
+    ids = shuffle([...own, ...opp, 8]).concat([0]);
+  }
+  const placed = [];
+  const fits = (x, y) => x > R + 0.3 && x < W - R - 0.3 && y > R + 0.3 && y < H - R - 0.3 &&
+    placed.every(b => Math.hypot(b.x - x, b.y - y) > D + 0.05) &&
+    POCKETS.every(p => Math.hypot(p.ax - x, p.ay - y) > 5);
+  for (const id of ids) {
+    let x, y, tries = 0;
+    do {
+      if (id !== 0 && placed.length && Math.random() < 0.18 && tries < 5) {
+        const b = placed[Math.floor(Math.random() * placed.length)];
+        const a = rnd(0, Math.PI * 2);
+        x = b.x + Math.cos(a) * (D + 0.06); y = b.y + Math.sin(a) * (D + 0.06);
+      } else if (id !== 0 && Math.random() < 0.15) {
+        const side = Math.floor(Math.random() * 4);
+        x = side === 0 ? R + 0.35 : side === 1 ? W - R - 0.35 : rnd(6, W - 6);
+        y = side === 2 ? R + 0.35 : side === 3 ? H - R - 0.35 : rnd(6, H - 6);
+      } else { x = rnd(3, W - 3); y = rnd(3, H - 3); }
+      tries++;
+    } while (!fits(x, y) && tries < 400);
+    Object.assign(balls[id], { x, y, on: true });
+    placed.push(balls[id]);
+  }
+  return balls;
+}
+
+// ---------- Drawing ----------
+function resize() {
+  const w = $('tableWrap').clientWidth;
+  SC = w / (W + 2 * RAIL);
+  const h = (H + 2 * RAIL) * SC;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.style.height = h + 'px';
+  canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+  draw();
+}
+function setT() { const dpr = window.devicePixelRatio || 1; ctx.setTransform(dpr * SC, 0, 0, dpr * SC, RAIL * dpr * SC, RAIL * dpr * SC); }
+
+function drawTable() {
+  ctx.fillStyle = '#4a2c18';
+  roundRect(-RAIL, -RAIL, W + 2 * RAIL, H + 2 * RAIL, 2.5); ctx.fill();
+  const g = ctx.createLinearGradient(0, -RAIL, 0, H + RAIL);
+  g.addColorStop(0, 'rgba(255,255,255,0.08)'); g.addColorStop(1, 'rgba(0,0,0,0.15)');
+  ctx.fillStyle = g; roundRect(-RAIL, -RAIL, W + 2 * RAIL, H + 2 * RAIL, 2.5); ctx.fill();
+  ctx.fillStyle = '#145a37'; ctx.fillRect(-1.6, -1.6, W + 3.2, H + 3.2);
+  const felt = ctx.createRadialGradient(W / 2, H / 2, 5, W / 2, H / 2, W * 0.65);
+  felt.addColorStop(0, '#1f7a4a'); felt.addColorStop(1, '#17643c');
+  ctx.fillStyle = felt; ctx.fillRect(0, 0, W, H);
+  // head string and foot spot
+  ctx.strokeStyle = 'rgba(255,255,255,0.08)'; ctx.lineWidth = 0.15;
+  ctx.beginPath(); ctx.moveTo(W / 4, 0); ctx.lineTo(W / 4, H); ctx.stroke();
+  ctx.fillStyle = 'rgba(255,255,255,0.18)'; ctx.beginPath(); ctx.arc(W * 0.75, H / 2, 0.35, 0, 7); ctx.fill();
+  // diamonds
+  ctx.fillStyle = '#e9dcc0';
+  for (const k of [1, 2, 3, 5, 6, 7]) for (const yy of [-RAIL / 2 - 0.8, H + RAIL / 2 + 0.8]) { diamond(W * k / 8, yy); }
+  for (const k of [1, 2, 3]) for (const xx of [-RAIL / 2 - 0.8, W + RAIL / 2 + 0.8]) { diamond(xx, H * k / 4); }
+  // pockets
+  for (const p of POCKETS) {
+    ctx.fillStyle = '#0b0b0b';
+    ctx.beginPath(); ctx.arc(p.cx, p.cy, p.side ? 2.5 : 2.9, 0, Math.PI * 2); ctx.fill();
+  }
+}
+function diamond(x, y) { ctx.beginPath(); ctx.moveTo(x, y - 0.55); ctx.lineTo(x + 0.35, y); ctx.lineTo(x, y + 0.55); ctx.lineTo(x - 0.35, y); ctx.closePath(); ctx.fill(); }
+function roundRect(x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
+
+function drawBall(x, y, id, alpha = 1) {
+  ctx.save(); ctx.globalAlpha = alpha;
+  ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.arc(x + 0.25, y + 0.3, R, 0, 7); ctx.fill();
+  ctx.beginPath(); ctx.arc(x, y, R, 0, Math.PI * 2); ctx.save(); ctx.clip();
+  if (id > 8) {
+    ctx.fillStyle = '#f6f3e8'; ctx.fillRect(x - R, y - R, D, D);
+    ctx.fillStyle = ballColor(id); ctx.fillRect(x - R, y - R * 0.55, D, R * 1.1);
+  } else { ctx.fillStyle = ballColor(id); ctx.fillRect(x - R, y - R, D, D); }
+  const sh = ctx.createRadialGradient(x - R * 0.4, y - R * 0.45, R * 0.1, x, y, R * 1.1);
+  sh.addColorStop(0, 'rgba(255,255,255,0.7)'); sh.addColorStop(0.3, 'rgba(255,255,255,0)'); sh.addColorStop(0.75, 'rgba(0,0,0,0)'); sh.addColorStop(1, 'rgba(0,0,0,0.16)');
+  ctx.fillStyle = sh; ctx.fillRect(x - R, y - R, D, D);
+  ctx.restore();
+  if (id > 0) {
+    ctx.fillStyle = '#fbfaf5'; ctx.beginPath(); ctx.arc(x, y, R * 0.5, 0, 7); ctx.fill();
+    ctx.fillStyle = '#111'; ctx.font = `600 ${id > 9 ? 0.62 : 0.72}px "IBM Plex Mono", monospace`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(String(id), x, y + 0.04);
+  }
+  ctx.restore();
+}
+
+function line(x1, y1, x2, y2, color, w, dash) {
+  ctx.save(); ctx.strokeStyle = color; ctx.lineWidth = w; ctx.setLineDash(dash || []); ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); ctx.restore();
+}
+function ring(x, y, r, color, w, dash) {
+  ctx.save(); ctx.strokeStyle = color; ctx.lineWidth = w; ctx.setLineDash(dash || []);
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.stroke(); ctx.restore();
+}
+function path(pts, color, w) {
+  if (!pts || pts.length < 2) return;
+  ctx.save(); ctx.strokeStyle = color; ctx.lineWidth = w; ctx.setLineDash([0.05, 0.9]); ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]); for (const p of pts) ctx.lineTo(p[0], p[1]); ctx.stroke(); ctx.restore();
+}
+function label(x, y, text, color) {
+  ctx.save(); ctx.font = '600 1.35px "IBM Plex Mono", monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  const w = ctx.measureText(text).width + 0.9;
+  ctx.fillStyle = 'rgba(8,20,14,0.82)'; roundRect(x - w / 2, y - 0.95, w, 1.9, 0.5); ctx.fill();
+  ctx.fillStyle = color; ctx.fillText(text, x, y + 0.05); ctx.restore();
+}
+
+function drawShotLines(g, color) {
+  const ob = state.balls[g.t], pk = POCKETS[g.pk];
+  line(state.balls[0].x, state.balls[0].y, g.gx, g.gy, color, 0.22, [0.9, 0.6]);
+  ring(g.gx, g.gy, R, color, 0.16, [0.4, 0.3]);
+  line(ob.x, ob.y, pk.ax, pk.ay, color, 0.22);
+}
+
+function rayFirstBall(cx, cy, a) {
+  const dx = Math.cos(a), dy = Math.sin(a);
+  let best = null;
+  for (const b of state.balls) {
+    if (!b.on || b.id === 0) continue;
+    const fx = b.x - cx, fy = b.y - cy, t = fx * dx + fy * dy;
+    if (t <= 0) continue;
+    const perp2 = fx * fx + fy * fy - t * t;
+    if (perp2 > D * D) continue;
+    const tt = t - Math.sqrt(D * D - perp2);
+    if (!best || tt < best.t) best = { t: tt, b };
+  }
+  return best;
+}
+
+function draw() {
+  setT();
+  ctx.clearRect(-RAIL, -RAIL, W + 2 * RAIL, H + 2 * RAIL);
+  drawTable();
+  const cue = state.balls[0];
+  if (!anim && cue && cue.on) {
+    // every-pot overlay
+    if ($('allOpts').checked && analysis) {
+      for (const o of analysis.options) {
+        if (!o.ok) continue;
+        const ob = state.balls[o.t], pk = POCKETS[o.pk];
+        line(ob.x, ob.y, pk.ax, pk.ay, FELT_TONE[toneOf(o.p)], 0.14);
+      }
+      for (const o of analysis.options) {
+        if (!o.ok) continue;
+        const ob = state.balls[o.t], pk = POCKETS[o.pk];
+        label(ob.x + (pk.ax - ob.x) * 0.45, ob.y + (pk.ay - ob.y) * 0.45, pct(o.p), FELT_TONE[toneOf(o.p)]);
+      }
+    }
+    // coach preview
+    if (revealed && preview) {
+      if (preview.kind === 'shot') {
+        const o = preview.o, v = preview.v;
+        drawShotLines(o, '#ffffff');
+        if (v) {
+          path(v.cuePath, '#9fd0ff', 0.32);
+          if (v.end && v.end.on) drawBall(v.end.x, v.end.y, 0, 0.45);
+          if (v.next && !v.win) {
+            const nb = state.balls[v.next.t];
+            ring(nb.x, nb.y, R + 0.55, '#9fd0ff', 0.2);
+            line(nb.x, nb.y, POCKETS[v.next.pk].ax, POCKETS[v.next.pk].ay, '#9fd0ff', 0.12, [0.5, 0.5]);
+          }
+        }
+      } else if (preview.kind === 'safety') {
+        const s = preview.s;
+        const tb = state.balls[s.t];
+        ring(tb.x, tb.y, R + 0.55, '#ffffff', 0.2);
+        path(s.cuePath, '#9fd0ff', 0.32);
+        if (s.end && s.end.on) drawBall(s.end.x, s.end.y, 0, 0.45);
+        if (s.oppNext) {
+          const ob = s.after[s.oppNext.t];
+          if (ob && ob.on) { ring(ob.x, ob.y, R + 0.55, '#ff8a7a', 0.2, [0.4, 0.3]); label(ob.x, ob.y - 2.6, 'opp ' + pct(s.oppP), '#ff8a7a'); }
+        }
+      }
+    }
+    // your call
+    if (call.aim != null) {
+      const hit = rayFirstBall(cue.x, cue.y, call.aim);
+      const len = hit ? hit.t : 120;
+      const ex = cue.x + Math.cos(call.aim) * len, ey = cue.y + Math.sin(call.aim) * len;
+      line(cue.x, cue.y, ex, ey, '#ffe9a8', 0.2, [0.9, 0.6]);
+      if (hit) {
+        ring(ex, ey, R, '#ffe9a8', 0.16, [0.4, 0.3]);
+        const nx = hit.b.x - ex, ny = hit.b.y - ey, nl = Math.hypot(nx, ny);
+        line(hit.b.x, hit.b.y, hit.b.x + nx / nl * 14, hit.b.y + ny / nl * 14, '#ffe9a8', 0.18);
+      }
+    } else if (call.t != null) {
+      const tb = state.balls[call.t];
+      ring(tb.x, tb.y, R + 0.55, '#ffe9a8', 0.22);
+      if (call.pk != null && !(revealed && preview)) drawShotLines(shotGeom(cue, tb, call.pk, state.balls), '#ffe9a8');
+      if (call.pk != null) ring(POCKETS[call.pk].cx, POCKETS[call.pk].cy, 3.3, '#ffe9a8', 0.25);
+    }
+  }
+  // balls
+  if (anim) {
+    const f = anim.frames[anim.i];
+    for (let i = 15; i >= 0; i--) if (!Number.isNaN(f[2 * i])) drawBall(f[2 * i], f[2 * i + 1], i);
+  } else {
+    for (const b of state.balls) if (b.on && b.id !== 0) drawBall(b.x, b.y, b.id);
+    if (cue && cue.on) drawBall(cue.x, cue.y, 0);
+  }
+}
+
+// ---------- Panel ----------
+function buildSegs() {
+  $('spinSeg').innerHTML = SPINS.map(s => `<button type="button" data-k="${s.k}" aria-pressed="${s.k === spin}">${s.label}</button>`).join('');
+  $('speedSeg').innerHTML = SPEEDS.map(s => `<button type="button" data-k="${s.k}" aria-pressed="${s.k === speed}">${s.label}</button>`).join('');
+}
+$('spinSeg').addEventListener('click', e => { const b = e.target.closest('button'); if (!b || busy) return; spin = b.dataset.k; buildSegs(); callChanged(); });
+$('speedSeg').addEventListener('click', e => { const b = e.target.closest('button'); if (!b || busy) return; speed = b.dataset.k; buildSegs(); callChanged(); });
+
+function callText() {
+  if (call.aim != null) return (call.safety ? 'Safety, ' : '') + 'free aim';
+  if (call.safety) return 'Play safe';
+  if (call.t != null && call.pk != null) return `${call.t}-ball, ${pocketName(call.pk)}`;
+  if (call.t != null) return `${call.t}-ball, now pick a pocket`;
+  return 'nothing yet';
+}
+function callChanged() {
+  $('callText').textContent = callText();
+  $('safeBtn').setAttribute('aria-pressed', String(call.safety));
+  if (revealed && !graded) renderCoach();
+  draw();
+}
+function setStatus(html) { $('status').innerHTML = html; }
+function updateButtons() {
+  $('askBtn').disabled = busy || turnOver || analyzing || revealed;
+  $('shootBtn').disabled = busy || turnOver;
+  $('safeBtn').disabled = busy || turnOver;
+  $('newBtn').disabled = busy;
+  $('retryBtn').disabled = busy || !beforeShot;
+  $('stats').textContent = `Calls graded: ${stats.calls} · Matched the coach: ${stats.good}`;
+}
+
+const isNine = () => state.group === 'nine';
+function ownLeft() { return groupIds(state.group).filter(id => state.balls[id].on).length; }
+function defaultStatus() {
+  if (isNine()) {
+    const lo = lowestOn(state.balls);
+    return lo === 9 ? 'Only the 9 is left. <strong>Pick a pocket for the 9.</strong>' : `The lowest ball is the <strong>${lo}</strong>, so you must hit it first. Pick a pocket for it. Making the 9 on any legal shot wins.`;
+  }
+  const n = ownLeft();
+  return n ? `You have <strong>${n}</strong> solid${n > 1 ? 's' : ''} left. Pick a ball, then a pocket.` : 'Your group is clear. <strong>Call the 8-ball.</strong>';
+}
+
+// ---------- Grading ----------
+function gradeCall() {
+  const best = analysis.rec === 'shoot' ? analysis.offense[0] : null;
+  const bestScore = best ? best.best.score : 0;
+  if (call.aim != null) return { tone: 'muted', head: 'Free aim isn’t graded', body: 'Call a ball and pocket, or press Play safe, to get a grade.' };
+  if (call.safety) {
+    if (analysis.rec === 'safety') return { tone: 'good', head: 'Great call', body: 'The coach also plays safe here.', good: true };
+    if (analysis.rec === 'none') return { tone: 'warn', head: 'Tough spot', body: 'There’s no clean shot or safety. You’d need a kick.', good: true };
+    return { tone: best.best.exec >= 0.6 ? 'bad' : 'warn', head: best.best.exec >= 0.6 ? 'Coach disagrees' : 'Defensible', body: `You have a ${pct(best.best.exec)} shot on the ${best.t} with a good leave. That’s too good to pass up.`, good: best.best.exec < 0.6 };
+  }
+  if (call.t == null || call.pk == null) return null;
+  const o = analysis.options.find(x => x.t === call.t && x.pk === call.pk);
+  if (!o || !o.ok) return { tone: 'bad', head: 'Coach disagrees', body: `The ${call.t} in the ${pocketName(call.pk)} isn’t on: ${o ? o.why : 'no clear path'}.` };
+  const v = o.variants[spin + '|' + speed];
+  if (!v) return { tone: 'bad', head: 'Long shot', body: `Only about ${pct(o.p)} to make. Look for a better option or a safety.` };
+  const parts = [`Make chance ${pct(v.exec)} (${Math.round(o.cut)}° cut).`];
+  if (!v.made) parts.push(`With ${spinLabel(spin).toLowerCase()} at ${speedLabel(speed).toLowerCase()} speed the simulation came up short or the ball didn’t drop.`);
+  else if (v.scratch) parts.push(`That spin and speed scratches the cue ball.`);
+  else if (v.foul) parts.push('That spin and speed causes a foul.');
+  else if (v.win) parts.push('Wins the rack.');
+  else parts.push(v.next ? `Leaves ${pct(v.leave)} on the ${v.next.t}.` : 'Leaves you no shot after.');
+  if (o.best && o.best.score > v.score + 0.03 && o.best.spin + o.best.speed !== spin + speed) parts.push(`Same pot with ${spinLabel(o.best.spin).toLowerCase()} at ${speedLabel(o.best.speed).toLowerCase()} speed leaves ${o.best.win ? 'the win' : pct(o.best.leave)}.`);
+  let ratio = bestScore > 0 ? v.score / bestScore : (v.score > 0 ? 1 : 0);
+  if (analysis.rec === 'safety') {
+    const tone = v.exec >= 0.4 && v.score > 0 ? 'warn' : 'bad';
+    return { tone, head: tone === 'warn' ? 'Risky' : 'Coach disagrees', body: parts.join(' ') + ' The coach would play safe here.', good: false };
+  }
+  if (ratio >= 0.9) return { tone: 'good', head: 'Great call', body: parts.join(' '), good: true };
+  if (ratio >= 0.65) return { tone: 'warn', head: 'Playable', body: parts.join(' '), good: false };
+  return { tone: 'bad', head: 'Coach disagrees', body: parts.join(' '), good: false };
+}
+
+function reasonsFor(o, v) {
+  const r = [];
+  r.push(`Make chance <strong>${pct(v.exec)}</strong>: a ${Math.round(o.cut)}° cut, ${Math.round(o.d1)}″ from cue ball to contact and ${Math.round(o.d2)}″ to the pocket.`);
+  if (v.win) r.push('It’s the 8-ball. Make it and the rack is yours.');
+  else if (v.next) {
+    const lastOne = !isNine() && groupIds(state.group).filter(id => state.balls[id].on).length === 1;
+    r.push(`${spinLabel(v.spin)} at ${speedLabel(v.speed).toLowerCase()} speed leaves <strong>${pct(v.leave)}</strong> on ${lastOne ? 'the 8' : 'the ' + v.next.t} in the ${pocketName(v.next.pk)}.`);
+  }
+  const alt = analysis.offense.filter(x => x !== o).sort((a, b) => b.p - a.p)[0];
+  if (alt && alt.p > o.p + 0.05 && alt.best) r.push(`The ${alt.t} in the ${pocketName(alt.pk)} is easier to make (${pct(alt.p)}), but its best leave is only ${pct(alt.best.leave)}. Position wins.`);
+  if (v.spin === 'stun') r.push('Stun is the most predictable cue ball: on a cut it leaves along the 90° tangent line.');
+  if (v.spin === 'follow') r.push('Follow carries the cue ball forward past the contact point, bending toward the object ball’s path.');
+  if (v.spin === 'draw') r.push('Draw pulls the cue ball back. It weakens with distance, so stay close and stroke through.');
+  if (o.scratchCombos.length) r.push(`<span class="b">Scratch risk:</span> ${o.scratchCombos.slice(0, 2).join(' and ')} sends the cue ball into a pocket.`);
+  return r;
+}
+
+function renderCoach() {
+  const el = $('coach');
+  if (analyzing) { el.innerHTML = '<p class="eyebrow">Coach</p><p class="thinking">Simulating every option…</p>'; return; }
+  if (!revealed || !analysis) {
+    el.innerHTML = `<p class="eyebrow">Coach</p><p class="thinking">${turnOver ? 'Turn over. Retry the last shot or rack a new table.' : 'Make your call first, then ask the coach.'}</p>`;
+    return;
+  }
+  let html = '<p class="eyebrow">Coach</p>';
+  if (graded && graded.head) html += `<div><span class="pill ${graded.tone === 'good' ? 'good' : graded.tone === 'warn' ? 'warn' : graded.tone === 'bad' ? 'bad' : ''}">${graded.head}</span></div>`;
+  const top = analysis.offense[0];
+  if (analysis.rec === 'shoot') {
+    const v = top.best;
+    html += `<p class="pick">${top.t === 8 ? '8-ball' : top.t + '-ball'}, ${pocketName(top.pk)}</p>`;
+    html += `<div class="chips"><span class="chip">${spinLabel(v.spin)}</span><span class="chip">${speedLabel(v.speed)} speed</span><span class="chip">make ${pct(v.exec)}</span>${v.win ? '' : `<span class="chip">leave ${pct(v.leave)}</span>`}</div>`;
+    html += `<ul class="reasons">${reasonsFor(top, v).map(x => `<li>${x}</li>`).join('')}</ul>`;
+  } else if (analysis.rec === 'safety') {
+    const s = analysis.safety;
+    html += `<p class="pick">Play safe off the ${s.t}</p>`;
+    html += `<div class="chips"><span class="chip">${thickness(s.f)} hit</span><span class="chip">${s.L < 0.5 ? 'Soft' : s.L < 1 ? 'Medium-soft' : 'Medium'} speed</span><span class="chip">opponent ${pct(s.oppP)}</span></div>`;
+    const r = [];
+    r.push(top ? `Your best pot is the ${top.t} at only <strong>${pct(top.best.exec)}</strong>. A miss would likely hand over the table.` : 'You have no makeable pot with a legal hit.');
+    r.push(`Hitting the ${s.t} ${thickness(s.f)} leaves your opponent <strong>${pct(s.oppP)}</strong> at best on their next shot.`);
+    r.push('A legal safety still needs your ball hit first and a ball to reach a rail after contact.');
+    html += `<ul class="reasons">${r.map(x => `<li>${x}</li>`).join('')}</ul>`;
+  } else {
+    html += '<p class="pick">No clean option</p><ul class="reasons"><li>Every pot is blocked and no direct safety works. This calls for a kick shot off a rail.</li></ul>';
+  }
+  if (graded && graded.body) html += `<div class="yours"><span class="eyebrow">Your call: ${callText()}</span><p>${graded.body}</p></div>`;
+  // options table
+  const rows = analysis.offense.slice(0, 7);
+  const blocked = analysis.options.filter(o => !o.ok).length;
+  html += '<div class="opts-scroll"><table class="opts"><thead><tr><th>Ball</th><th>Pocket</th><th>Make</th><th>Leave</th><th>Best way</th></tr></thead><tbody>';
+  for (const o of rows) {
+    const v = o.best, key = 'o' + o.t + '_' + o.pk;
+    const sel = preview && preview.kind === 'shot' && preview.o === o ? ' sel' : '';
+    html += `<tr class="clickable${sel}" data-key="${key}"><td class="num">${o.t}</td><td>${pocketName(o.pk)}</td><td class="num ${toneOf(v.exec)}">${pct(v.exec)}</td><td class="num ${v.win ? 'g' : toneOf(v.leave)}">${v.win ? 'win' : pct(v.leave)}</td><td>${spinLabel(v.spin)}, ${speedLabel(v.speed).toLowerCase()}</td></tr>`;
+  }
+  if (analysis.safety) {
+    const s = analysis.safety, sel = preview && preview.kind === 'safety' ? ' sel' : '';
+    html += `<tr class="clickable${sel}" data-key="safe"><td class="num">${s.t}</td><td>Safety</td><td class="num muted">n/a</td><td class="num ${toneOf(1 - s.oppP)}">opp ${pct(s.oppP)}</td><td>${thickness(s.f)}</td></tr>`;
+  }
+  html += '</tbody></table></div>';
+  html += `<p class="hint">Click a row to see its path on the table. ${blocked ? `${blocked} other pot${blocked > 1 ? 's are' : ' is'} blocked, too thin, or behind a rail.` : ''}</p>`;
+  html += `<div class="actions"><button type="button" id="coachShot">Play the coach’s shot</button></div>`;
+  el.innerHTML = html;
+  el.querySelectorAll('tr.clickable').forEach(tr => tr.addEventListener('click', () => {
+    const k = tr.dataset.key;
+    if (k === 'safe') preview = { kind: 'safety', s: analysis.safety };
+    else { const o = analysis.offense.find(x => 'o' + x.t + '_' + x.pk === k); preview = { kind: 'shot', o, v: o.best }; }
+    renderCoach(); draw();
+  }));
+  const cb = $('coachShot');
+  if (cb) { cb.disabled = busy || analysis.rec === 'none'; cb.addEventListener('click', playCoach); }
+}
+
+function defaultPreview() {
+  if (!analysis) return null;
+  if (analysis.rec === 'shoot') return { kind: 'shot', o: analysis.offense[0], v: analysis.offense[0].best };
+  if (analysis.rec === 'safety') return { kind: 'safety', s: analysis.safety };
+  return null;
+}
+
+// ---------- Turn flow ----------
+function startAnalysis() {
+  analysis = null; analyzing = true; revealed = false; graded = false; preview = null;
+  renderCoach(); updateButtons();
+  setTimeout(() => {
+    analysis = analyze(state.balls, state.group);
+    analyzing = false;
+    renderCoach(); updateButtons(); draw();
+  }, 30);
+}
+function resetCall() {
+  call = { t: isNine() ? lowestOn(state.balls) : null, pk: null, safety: false, aim: null };
+  callChanged();
+}
+
+let mode = 'eight';
+function buildModeSeg() {
+  $('modeSeg').innerHTML = [['eight', '8-ball'], ['nine', '9-ball']].map(([k, l]) => `<button type="button" data-k="${k}" aria-pressed="${k === mode}">${l}</button>`).join('');
+  $('callHead').textContent = mode === 'nine' ? 'Your turn · 9-ball · lowest ball first' : 'Your turn · you are solids (1–7)';
+}
+$('modeSeg').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b || busy || b.dataset.k === mode) return;
+  mode = b.dataset.k; buildModeSeg(); newRack();
+});
+
+function newRack() {
+  state = { balls: genRack(mode), group: mode === 'nine' ? 'nine' : 'solids' };
+  beforeShot = null; turnOver = false;
+  resetCall(); setStatus(defaultStatus()); startAnalysis(); draw();
+}
+
+$('askBtn').addEventListener('click', () => {
+  if (!analysis) return;
+  revealed = true;
+  const g = gradeCall();
+  graded = g || { head: '', body: '' };
+  if (g && g.tone !== 'muted') { stats.calls++; if (g.good) stats.good++; }
+  preview = defaultPreview();
+  renderCoach(); updateButtons(); draw();
+});
+$('safeBtn').addEventListener('click', () => {
+  if (busy || turnOver) return;
+  call.safety = !call.safety;
+  if (call.safety) { call.t = null; call.pk = null; call.aim = null; }
+  else if (isNine()) call.t = lowestOn(state.balls);
+  callChanged();
+  setStatus(call.safety ? 'Safety called. Drag on the table to aim it yourself, or shoot to play the coach’s safety.' : defaultStatus());
+});
+$('newBtn').addEventListener('click', newRack);
+$('retryBtn').addEventListener('click', () => {
+  if (!beforeShot || busy) return;
+  state.balls = beforeShot.map(b => ({ ...b }));
+  turnOver = false; resetCall(); setStatus('Position restored. ' + defaultStatus()); startAnalysis(); draw();
+});
+$('allOpts').addEventListener('change', draw);
+
+$('shootBtn').addEventListener('click', () => {
+  if (busy || turnOver) return;
+  const sp = SPINS.find(s => s.k === spin), sd = SPEEDS.find(s => s.k === speed);
+  const cue = state.balls[0];
+  if (call.aim != null) return run(call.aim, speedV(sd.L), sp.s, { safety: call.safety });
+  if (call.t != null && call.pk != null) {
+    const g = shotGeom(cue, state.balls[call.t], call.pk, state.balls);
+    return run(g.angle, speedV(sd.L), sp.s, { called: { t: call.t, pk: call.pk } });
+  }
+  if (call.safety) {
+    if (!analysis) return setStatus('The coach is still working out the safety. Try again in a moment.');
+    if (!analysis.safety) return setStatus('No direct safety found. Drag on the table to aim a kick shot.');
+    return run(analysis.safety.angle, speedV(analysis.safety.L), 0, { safety: true });
+  }
+  setStatus('Pick a ball and a pocket, press Play safe, or drag on the table to aim.');
+});
+
+function playCoach() {
+  if (busy || !analysis) return;
+  if (analysis.rec === 'shoot') {
+    const o = analysis.offense[0], v = o.best;
+    spin = v.spin; speed = v.speed; buildSegs();
+    call = { t: o.t, pk: o.pk, safety: false, aim: null }; callChanged();
+    run(o.angle, speedV(SPEEDS.find(s => s.k === v.speed).L), SPINS.find(s => s.k === v.spin).s, { called: { t: o.t, pk: o.pk }, coach: true });
+  } else if (analysis.safety) {
+    run(analysis.safety.angle, speedV(analysis.safety.L), 0, { safety: true, coach: true });
+  }
+}
+
+function run(angle, v, s, ctxInfo) {
+  const ownBefore = isNine() ? lowestOn(state.balls) : ownLeft();
+  beforeShot = state.balls.map(b => ({ ...b }));
+  const r = simulate(state.balls, angle, v, s, { frames: true });
+  busy = true; preview = null; updateButtons();
+  setStatus('Shooting…');
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  anim = { frames: r.frames, i: 0 };
+  const step = () => {
+    anim.i += reduce ? 6 : 1;
+    if (anim.i >= anim.frames.length - 1) {
+      anim = null; busy = false; state.balls = r.balls;
+      judge(r, ctxInfo, ownBefore);
+      return;
+    }
+    draw(); requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
+function respot9() {
+  const b = state.balls[9];
+  let x = W * 0.75;
+  while (state.balls.some(o => o.on && o.id !== 9 && Math.hypot(o.x - x, o.y - H / 2) < D + 0.05)) x += D;
+  Object.assign(b, { x, y: H / 2, on: true });
+}
+
+function judgeNine(r, info, lowBefore) {
+  const potted = r.potted.filter(q => q.id !== 0);
+  const pot9 = potted.some(q => q.id === 9);
+  const legal = r.firstHit === lowBefore && !r.scratch;
+  let msg, cont = false;
+  if (r.firstHit < 0) msg = '<strong class="b">Foul.</strong> The cue ball didn’t touch a ball. Opponent gets ball in hand.';
+  else if (r.firstHit !== lowBefore) msg = `<strong class="b">Foul.</strong> You hit the ${r.firstHit} first, but the lowest ball was the ${lowBefore}. Opponent gets ball in hand.`;
+  else if (r.scratch) msg = '<strong class="b">Scratch.</strong> Opponent gets ball in hand.';
+  if (pot9 && legal) msg = `<strong class="g">9-ball down. You won the rack.</strong>${lowBefore !== 9 ? ' A legal hit that makes the 9 wins, even early.' : ''}`;
+  else if (pot9) { respot9(); msg += ' The 9 comes back up on the foot spot.'; }
+  else if (legal && potted.length) {
+    const called = info.called && potted.some(q => q.id === info.called.t && q.pk === info.called.pk);
+    msg = `<strong class="g">${called ? 'Made it.' : 'Ball down.'}</strong> ` + (potted.length > 1 ? `Pocketed ${potted.map(q => q.id).join(' and ')}. ` : '') + 'Still your turn. ';
+    cont = true;
+  } else if (legal && info.safety) {
+    const nb = bestShot(state.balls, 'nine');
+    msg = r.rail ? `<strong>Safety played.</strong> Your opponent’s best shot now: ${nb ? pct(nb.p) + ' on the ' + nb.t : 'nothing makeable'}.` : '<strong class="b">Foul.</strong> No ball reached a rail after contact.';
+  } else if (legal) {
+    const nb = bestShot(state.balls, 'nine');
+    msg = r.rail ? `<strong class="w">Missed.</strong> You left your opponent ${nb ? pct(nb.p) + ' on the ' + nb.t : 'no easy shot'}.` : '<strong class="b">Foul.</strong> No ball reached a rail after contact. Opponent gets ball in hand.';
+  }
+  return { msg, cont };
+}
+
+function judge(r, info, ownBefore) {
+  if (isNine()) {
+    const { msg, cont } = judgeNine(r, info, ownBefore);
+    return finishTurn(msg, cont);
+  }
+  const ids = groupIds(state.group);
+  const potOwn = r.potted.filter(q => ids.includes(q.id));
+  const pot8 = r.potted.some(q => q.id === 8);
+  const legalFirst = ownBefore === 0 ? r.firstHit === 8 : ids.includes(r.firstHit);
+  let msg, cont = false;
+  if (r.firstHit < 0) msg = '<strong class="b">Foul.</strong> The cue ball didn’t touch a ball. Opponent gets ball in hand.';
+  else if (pot8) {
+    msg = (ownBefore === 0 && legalFirst && !r.scratch) ? '<strong class="g">8-ball down. You won the rack.</strong>' : '<strong class="b">The 8 went down early.</strong> That loses the rack.';
+  } else if (r.scratch) msg = '<strong class="b">Scratch.</strong> Opponent gets ball in hand.';
+  else if (!legalFirst) msg = `<strong class="b">Foul.</strong> You hit the ${r.firstHit} first. Opponent gets ball in hand.`;
+  else if (potOwn.length) {
+    const called = info.called && potOwn.some(q => q.id === info.called.t && q.pk === info.called.pk);
+    msg = `<strong class="g">${called ? 'Made it.' : 'A solid dropped.'}</strong> ` + (potOwn.length > 1 ? `Pocketed ${potOwn.map(q => q.id).join(' and ')}. ` : '') + 'Still your turn. ';
+    cont = true;
+  } else if (info.safety) {
+    const nb = bestShot(state.balls, otherGroup(state.group));
+    msg = r.rail ? `<strong>Safety played.</strong> Your opponent’s best shot now: ${nb ? pct(nb.p) + ' on the ' + nb.t : 'nothing makeable'}.` : '<strong class="b">Foul.</strong> No ball reached a rail after contact.';
+  } else {
+    const nb = bestShot(state.balls, otherGroup(state.group));
+    msg = `<strong class="w">Missed.</strong> You left your opponent ${nb ? pct(nb.p) + ' on the ' + nb.t : 'no easy shot'}.`;
+  }
+  finishTurn(msg, cont);
+}
+
+function finishTurn(msg, cont) {
+  turnOver = !cont;
+  call = { t: cont && isNine() ? lowestOn(state.balls) : null, pk: null, safety: false, aim: null };
+  $('callText').textContent = callText(); $('safeBtn').setAttribute('aria-pressed', 'false');
+  if (cont) {
+    const nb = bestShot(state.balls, state.group);
+    const next = isNine() ? `Next up: the ${lowestOn(state.balls)}, ${nb ? pct(nb.p) + ' from here' : 'with no clean pot'}. ` :
+      ownLeft() ? `Your best look: ${nb ? pct(nb.p) + ' on the ' + nb.t : 'no clean pot'}. ` : 'Now the 8. ';
+    setStatus(msg + next + 'Call the next one.');
+    startAnalysis();
+  } else {
+    setStatus(msg + ' <span class="muted">Retry the shot or rack a new table.</span>');
+    revealed = false; analysis = null; renderCoach();
+  }
+  updateButtons(); draw();
+}
+
+// ---------- Pointer ----------
+function toTable(e) { const rc = canvas.getBoundingClientRect(); return { x: (e.clientX - rc.left) / SC - RAIL, y: (e.clientY - rc.top) / SC - RAIL }; }
+canvas.addEventListener('pointerdown', e => {
+  if (busy || turnOver || !state.balls[0].on) return;
+  drag = { start: toTable(e), moved: false };
+  canvas.setPointerCapture(e.pointerId);
+});
+canvas.addEventListener('pointermove', e => {
+  if (!drag) return;
+  const p = toTable(e);
+  if (!drag.moved && Math.hypot(p.x - drag.start.x, p.y - drag.start.y) < 1.8) return;
+  drag.moved = true;
+  const cue = state.balls[0];
+  call.aim = Math.atan2(p.y - cue.y, p.x - cue.x); call.t = null; call.pk = null;
+  callChanged();
+});
+canvas.addEventListener('pointerup', e => {
+  if (!drag) return;
+  const moved = drag.moved; drag = null;
+  if (moved) { setStatus('Free aim set. The yellow line shows the contact point and where the object ball goes. Shoot when ready.'); return; }
+  const p = toTable(e);
+  const targets = targetsFor(state.balls, state.group);
+  const hitBall = targets.find(b => Math.hypot(b.x - p.x, b.y - p.y) < D * 1.1);
+  if (hitBall) { call = { t: hitBall.id, pk: null, safety: false, aim: null }; callChanged(); setStatus(`${hitBall.id}-ball selected. Now click a pocket.`); return; }
+  const other = state.balls.find(b => b.on && b.id !== 0 && Math.hypot(b.x - p.x, b.y - p.y) < D * 1.1);
+  if (other) {
+    if (isNine()) setStatus(`In 9-ball you must hit the lowest ball first. That’s the ${lowestOn(state.balls)}, not the ${other.id}.`);
+    else setStatus(other.id === 8 ? 'Not yet. Clear your solids before the 8.' : `The ${other.id} is a stripe. That’s your opponent’s ball.`);
+    return;
+  }
+  let pk = -1, bd = 6;
+  POCKETS.forEach((q, k) => { const d = Math.hypot(q.cx - p.x, q.cy - p.y); if (d < bd) { bd = d; pk = k; } });
+  if (pk >= 0) {
+    if (call.t == null && isNine()) call.t = lowestOn(state.balls);
+    if (call.t == null) { setStatus('Pick one of your balls first, then the pocket.'); return; }
+    call.pk = pk; call.safety = false; call.aim = null; callChanged();
+    const g = shotGeom(state.balls[0], state.balls[call.t], pk, state.balls);
+    setStatus(g.ok ? `Called the ${call.t} in the ${pocketName(pk)}: a ${Math.round(g.cut)}° cut. Choose spin and speed, then ask the coach or shoot.` : `Called the ${call.t} in the ${pocketName(pk)}, but ${g.why}.`);
+  }
+});
+
+window.addEventListener('resize', resize);
+buildSegs();
+buildModeSeg();
+newRack();
+resize();
+if (document.fonts) document.fonts.ready.then(draw);
+</script>
+</body>
+</html>
