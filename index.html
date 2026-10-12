@@ -92,6 +92,10 @@ label.check { display: inline-flex; gap: 6px; align-items: center; color: var(--
 .call-box button[aria-pressed="false"] { background: var(--raise-2); }
 .call-btns { display: flex; gap: 6px; }
 .row { display: grid; gap: 6px; }
+.speed-ctl { display: flex; align-items: center; gap: 12px; }
+.speed-ctl input[type=range] { flex: 1; accent-color: var(--fg); height: 22px; }
+.speed-out { min-width: 136px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; }
+.speed-out b { color: var(--fg); font-weight: 600; }
 .actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .actions button { flex: 1 1 140px; }
 .hint { font-size: 12px; color: var(--muted); margin: 0; }
@@ -219,13 +223,14 @@ dialog.about::backdrop { background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(4
         </div>
         <div class="row">
           <span class="eyebrow">Speed</span>
+          <div class="speed-ctl"><input type="range" id="speedRange" min="0" max="100" step="1" aria-label="Shot speed"><span class="speed-out" id="speedOut"></span></div>
           <div class="seg" id="speedSeg"></div>
         </div>
         <div class="actions">
           <button id="shootBtn" class="primary" type="button">Shoot my call</button>
           <button id="askBtn" type="button">Ask the coach</button>
         </div>
-        <p class="hint">Click one of your balls, then a pocket, or drag on the table to aim anywhere. Speeds: soft 1.5 mph (about a table length), medium 3 mph (a lag), firm 5 mph, hard 8 mph.</p>
+        <p class="hint">Click one of your balls, then a pocket, or drag on the table to aim anywhere. Slide for any speed from a feather touch to a power shot; the presets are 1.5, 3, 5 and 8 mph.</p>
         <div class="stats" id="stats">Calls graded: 0</div>
       </section>
 
@@ -316,12 +321,21 @@ const SPINS = [
 ];
 // Speeds follow Dr. Dave's typical shot speeds (TP B.6): touch 1.5 mph, slow 3, medium-soft 5, medium-fast 8.
 const lenFor = mph => (mph * MPH) ** 2 / (2 * DECEL * 100);
+// Harder shots are less accurate: no penalty up to 3 mph, then 3% per mph (my estimate).
+const speedF = mph => Math.max(0.6, mph <= 3 ? 1 : 1 - 0.03 * (mph - 3));
 const SPEEDS = [
-  { k: 'soft', mph: 1.5, L: lenFor(1.5), label: 'Soft', f: 1 },
-  { k: 'medium', mph: 3, L: lenFor(3), label: 'Medium', f: 1 },
-  { k: 'firm', mph: 5, L: lenFor(5), label: 'Firm', f: 0.94 },
-  { k: 'hard', mph: 8, L: lenFor(8), label: 'Hard', f: 0.85 },
+  { k: 'soft', mph: 1.5, L: lenFor(1.5), label: 'Soft', f: speedF(1.5) },
+  { k: 'medium', mph: 3, L: lenFor(3), label: 'Medium', f: speedF(3) },
+  { k: 'firm', mph: 5, L: lenFor(5), label: 'Firm', f: speedF(5) },
+  { k: 'hard', mph: 8, L: lenFor(8), label: 'Hard', f: speedF(8) },
 ];
+// A speed is a preset key ('soft'…) or any speed in mph ('m2.4').
+function speedObj(k) {
+  const pre = SPEEDS.find(x => x.k === k);
+  if (pre) return pre;
+  const mph = parseFloat(String(k).slice(1)) || 3;
+  return { k, mph, L: lenFor(mph), label: mph.toFixed(1) + ' mph', f: speedF(mph), custom: true };
+}
 const SAFE_SPEEDS = [0.35, 0.7, 1.2];
 const SAFE_FRACS = [-0.85, -0.55, -0.25, 0, 0.25, 0.55, 0.85];
 
@@ -546,6 +560,30 @@ function bestShot(balls, group) {
   return best;
 }
 
+// One way to play a pot: a spin and a speed, aimed to allow for throw, simulated, and scored.
+function makeVariant(balls, group, o, sp, sd) {
+  const nine = group === 'nine', t = balls[o.t], k = o.pk, V = speedV(sd.L);
+  const s0 = strikeSpin(V, sp.s, o.d1);
+  const aim = aimFor(balls, t.id, k, V, s0, o);
+  const r = simulate(balls, aim.angle, V, s0, { cuePath: true });
+  const made = r.potted.some(q => q.id === t.id && q.pk === k);
+  const v = { spin: sp.k, speed: sd.k, s0, angle: aim.angle, throwDeg: aim.throwDeg, cuePath: r.cuePath, end: r.balls[0], made, scratch: r.scratch };
+  v.foul = r.firstHit !== t.id || r.scratch || (!nine && t.id !== 8 && r.potted.some(q => q.id === 8));
+  v.exec = o.p * sd.f * (sp.s ? 0.96 : 1);
+  if (made && !v.foul) {
+    if (nine ? r.potted.some(q => q.id === 9) : t.id === 8) { v.leave = 1; v.win = true; }
+    else { const nb = bestShot(r.balls, group); v.leave = nb ? nb.p : 0; v.next = nb; }
+    v.score = v.exec * (0.3 + 0.7 * v.leave);
+  } else { v.leave = 0; v.score = 0; }
+  o.variants[sp.k + '|' + sd.k] = v;
+  return v;
+}
+// The variant for any spin and speed (custom speeds are worked out the first time they're asked for)
+function variantFor(balls, group, o, spinK, speedK) {
+  if (!o || !o.ok) return null;
+  return o.variants[spinK + '|' + speedK] || makeVariant(balls, group, o, SPINS.find(x => x.k === spinK), speedObj(speedK));
+}
+
 function analyze(balls, group, opts = {}) {
   const cue = balls[0];
   const nine = group === 'nine';
@@ -558,20 +596,8 @@ function analyze(balls, group, opts = {}) {
       options.push(o);
       if (!g.ok || g.p < 0.06) continue;
       for (const sp of SPINS) for (const sd of SPEEDS) {
-        const s0 = strikeSpin(speedV(sd.L), sp.s, g.d1);
-        const aim = aimFor(balls, t.id, k, speedV(sd.L), s0, g);
-        const r = simulate(balls, aim.angle, speedV(sd.L), s0, { cuePath: true });
-        const made = r.potted.some(q => q.id === t.id && q.pk === k);
-        const v = { spin: sp.k, speed: sd.k, s0, angle: aim.angle, throwDeg: aim.throwDeg, cuePath: r.cuePath, end: r.balls[0], made, scratch: r.scratch };
-        v.foul = r.firstHit !== t.id || r.scratch || (!nine && t.id !== 8 && r.potted.some(q => q.id === 8));
-        v.exec = g.p * sd.f * (sp.s ? 0.96 : 1);
-        if (made && r.scratch) o.scratchCombos.push(`${sp.label.toLowerCase()} at ${sd.label.toLowerCase()} speed`);
-        if (made && !v.foul) {
-          if (nine ? r.potted.some(q => q.id === 9) : t.id === 8) { v.leave = 1; v.win = true; }
-          else { const nb = bestShot(r.balls, group); v.leave = nb ? nb.p : 0; v.next = nb; }
-          v.score = v.exec * (0.3 + 0.7 * v.leave);
-        } else { v.leave = 0; v.score = 0; }
-        o.variants[sp.k + '|' + sd.k] = v;
+        const v = makeVariant(balls, group, o, sp, sd);
+        if (v.made && v.scratch) o.scratchCombos.push(`${sp.label.toLowerCase()} at ${sd.label.toLowerCase()} speed`);
         if (!o.best || v.score > o.best.score) o.best = v;
       }
     }
@@ -683,7 +709,8 @@ const pct = p => Math.round(p * 100) + '%';
 const toneOf = p => p >= 0.65 ? 'g' : p >= 0.4 ? 'w' : 'b';
 const FELT_TONE = { g: '#86f0a6', w: '#ffd36b', b: '#ff8a7a' };
 const spinLabel = k => SPINS.find(s => s.k === k).label;
-const speedLabel = k => SPEEDS.find(s => s.k === k).label;
+const speedLabel = k => speedObj(k).label;
+const speedPhrase = k => speedObj(k).custom ? speedObj(k).label : speedObj(k).label.toLowerCase() + ' speed';
 const pocketName = k => POCKETS[k].name;
 const thickness = f => { const a = Math.abs(f); return a < 0.1 ? 'full' : a < 0.4 ? 'thick (about ¾ ball)' : a < 0.7 ? 'half-ball' : 'thin'; };
 
@@ -1029,9 +1056,40 @@ function draw() {
 }
 
 // ---------- Panel ----------
+const MPH_MIN = 0.4, MPH_MAX = 12;
+const mphToPos = m => 100 * Math.log(m / MPH_MIN) / Math.log(MPH_MAX / MPH_MIN);
+const posToMph = p => MPH_MIN * Math.pow(MPH_MAX / MPH_MIN, p / 100);
+// How far a rolling ball travels at this speed, bouncing up and down the table (measured in the simulation)
+const travelCache = {};
+function travelLengths(mph) {
+  const key = mph.toFixed(1);
+  if (travelCache[key] == null) {
+    const b = Array.from({ length: 16 }, (_, id) => ({ id, x: 0, y: 0, on: false }));
+    Object.assign(b[0], { x: R + 0.1, y: H / 2, on: true });
+    const r = simulate(b, 0, mph * MPH, 1, { cuePath: true });
+    let d = 0; for (let i = 1; i < r.cuePath.length; i++) d += Math.hypot(r.cuePath[i][0] - r.cuePath[i - 1][0], r.cuePath[i][1] - r.cuePath[i - 1][1]);
+    travelCache[key] = d / W;
+  }
+  return travelCache[key];
+}
+function syncSpeedCtl() {
+  const so = speedObj(speed);
+  $('speedRange').value = String(Math.round(mphToPos(so.mph)));
+  const L = travelLengths(so.mph);
+  $('speedOut').innerHTML = `<b>${so.mph.toFixed(1)} mph</b> · rolls ~${L.toFixed(1)} table length${L >= 0.95 && L < 1.05 ? '' : 's'}`;
+}
+$('speedRange').addEventListener('input', e => {
+  if (busy || reviewing) return;
+  const mph = Math.round(posToMph(+e.target.value) * 10) / 10;
+  const pre = SPEEDS.find(x => Math.abs(x.mph - mph) < 0.05);
+  speed = pre ? pre.k : 'm' + mph.toFixed(1);
+  $('speedSeg').querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.k === speed)));
+  syncSpeedCtl(); callChanged();
+});
 function buildSegs() {
   $('spinSeg').innerHTML = SPINS.map(s => `<button type="button" data-k="${s.k}" aria-pressed="${s.k === spin}">${s.label}</button>`).join('');
   $('speedSeg').innerHTML = SPEEDS.map(s => `<button type="button" data-k="${s.k}" aria-pressed="${s.k === speed}">${s.label}</button>`).join('');
+  syncSpeedCtl();
 }
 $('spinSeg').addEventListener('click', e => { const b = e.target.closest('button'); if (!b || busy || reviewing) return; spin = b.dataset.k; buildSegs(); callChanged(); });
 $('speedSeg').addEventListener('click', e => { const b = e.target.closest('button'); if (!b || busy || reviewing) return; speed = b.dataset.k; buildSegs(); callChanged(); });
@@ -1085,6 +1143,7 @@ function updateButtons() {
   $('spinRow').hidden = isKick();
   if (isKick()) $('allOptsLbl').hidden = true;
   $('pushBtn').disabled = busy || turnOver || reviewing;
+  $('speedRange').disabled = busy || reviewing;
   $('newBtn').disabled = busy || reviewing;
   $('retryBtn').disabled = busy || !tip || reviewing;
   renderHistory();
@@ -1129,15 +1188,15 @@ function gradeCall() {
   if (call.t == null || call.pk == null) return null;
   const o = analysis.options.find(x => x.t === call.t && x.pk === call.pk);
   if (!o || !o.ok) return { tone: 'bad', head: 'Coach disagrees', body: `The ${call.t} in the ${pocketName(call.pk)} isn’t on: ${o ? o.why : 'no clear path'}.` };
-  const v = o.variants[spin + '|' + speed];
+  const v = variantFor(state.balls, state.group, o, spin, speed);
   if (!v) return { tone: 'bad', head: 'Long shot', body: `Only about ${pct(o.p)} to make. Look for a better option or a safety.` };
   const parts = [`Make chance ${pct(v.exec)} (${Math.round(o.cut)}° cut).`];
-  if (!v.made) parts.push(`With ${spinLabel(spin).toLowerCase()} at ${speedLabel(speed).toLowerCase()} speed the simulation came up short or the ball didn’t drop.`);
+  if (!v.made) parts.push(`With ${spinLabel(spin).toLowerCase()} at ${speedPhrase(speed)} the simulation came up short or the ball didn’t drop.`);
   else if (v.scratch) parts.push(`That spin and speed scratches the cue ball.`);
   else if (v.foul) parts.push('That spin and speed causes a foul.');
   else if (v.win) parts.push('Wins the rack.');
   else parts.push(v.next ? `Leaves ${pct(v.leave)} on the ${v.next.t}.` : 'Leaves you no shot after.');
-  if (o.best && o.best.score > v.score + 0.03 && o.best.spin + o.best.speed !== spin + speed) parts.push(`Same pot with ${spinLabel(o.best.spin).toLowerCase()} at ${speedLabel(o.best.speed).toLowerCase()} speed leaves ${o.best.win ? 'the win' : pct(o.best.leave)}.`);
+  if (o.best && o.best.score > v.score + 0.03 && o.best.spin + o.best.speed !== spin + speed) parts.push(`Same pot with ${spinLabel(o.best.spin).toLowerCase()} at ${speedPhrase(o.best.speed)} leaves ${o.best.win ? 'the win' : pct(o.best.leave)}.`);
   let ratio = bestScore > 0 ? v.score / bestScore : (v.score > 0 ? 1 : 0);
   if (analysis.rec === 'safety' || analysis.rec === 'push') {
     const tone = v.exec >= 0.4 && v.score > 0 ? 'warn' : 'bad';
@@ -1154,7 +1213,7 @@ function reasonsFor(o, v) {
   if (v.win) r.push('It’s the 8-ball. Make it and the rack is yours.');
   else if (v.next) {
     const lastOne = !isNine() && groupIds(state.group).filter(id => state.balls[id].on).length === 1;
-    r.push(`${spinLabel(v.spin)} at ${speedLabel(v.speed).toLowerCase()} speed leaves <strong>${pct(v.leave)}</strong> on ${lastOne ? 'the 8' : 'the ' + v.next.t} in the ${pocketName(v.next.pk)}.`);
+    r.push(`${spinLabel(v.spin)} at ${speedPhrase(v.speed)} leaves <strong>${pct(v.leave)}</strong> on ${lastOne ? 'the 8' : 'the ' + v.next.t} in the ${pocketName(v.next.pk)}.`);
   }
   const alt = analysis.offense.filter(x => x !== o).sort((a, b) => b.p - a.p)[0];
   if (alt && alt.p > o.p + 0.05 && alt.best) r.push(`The ${alt.t} in the ${pocketName(alt.pk)} is easier to make (${pct(alt.p)}), but its best leave is only ${pct(alt.best.leave)}. Position wins.`);
@@ -1357,7 +1416,7 @@ function coachParams(rec) {
   if (!rec.analysis) rec.analysis = rec.group === 'kick' ? analyzeKick(rec.balls, KICK_T) : analyze(rec.balls, rec.group, { push: rec.pushOk });
   const a = rec.analysis;
   if (a.kick) return a.best ? { angle: a.best.angle, v: KICK_V, s: 0 } : null;
-  if (a.rec === 'shoot') { const o = a.offense[0]; return { angle: o.best.angle, v: speedV(SPEEDS.find(x => x.k === o.best.speed).L), s: o.best.s0 }; }
+  if (a.rec === 'shoot') { const o = a.offense[0]; return { angle: o.best.angle, v: speedV(speedObj(o.best.speed).L), s: o.best.s0 }; }
   if (a.rec === 'safety') return { angle: a.safety.angle, v: speedV(a.safety.L), s: a.safety.s0 };
   if (a.rec === 'push' && a.push) return { angle: a.push.angle, v: speedV(a.push.L), s: 0 };
   return null;
@@ -1406,7 +1465,7 @@ function playReplay(rec, p, label, which) {
 // Every answer is worked out by the simulation from the position before the shot.
 const deg = r => r * 180 / Math.PI;
 const recOption = rec => { const a = rec.analysis, c = rec.call; return a && !a.kick && c.t != null && c.pk != null ? a.options.find(o => o.t === c.t && o.pk === c.pk) : null; };
-const recVariant = rec => { const o = recOption(rec); return o && o.variants ? o.variants[rec.spin + '|' + rec.speed] : null; };
+const recVariant = rec => variantFor(rec.balls, rec.group, recOption(rec), rec.spin, rec.speed);
 const oppGroup = rec => rec.group === 'nine' ? 'nine' : otherGroup(rec.group);
 function ensureAnalysis(rec) { if (!rec.analysis) rec.analysis = rec.group === 'kick' ? analyzeKick(rec.balls, KICK_T) : analyze(rec.balls, rec.group, { push: rec.pushOk }); return rec.analysis; }
 function questionsFor(rec) {
@@ -1439,7 +1498,7 @@ function answerQ(rec, id) {
       const tb = c.t != null ? rec.balls[c.t] : null, cb = r.balls[0];
       if (tb && cb.on && !r.scratch) {
         const gap = Math.max(0, Math.hypot(cb.x - tb.x, cb.y - tb.y) - D);
-        L.push(`The cue ball stopped about ${Math.round(gap)}″ short of the ${c.t}.` + (rec.spin === 'draw' || rec.spin === 'stun' ? ` At ${speedLabel(rec.speed).toLowerCase()} speed, the backspin needed for ${rec.spin} from ${Math.round(Math.hypot(tb.x - rec.balls[0].x, tb.y - rec.balls[0].y))}″ away slows the cue ball too much. Hit it harder, or use follow.` : ' Hit it harder.'));
+        L.push(`The cue ball stopped about ${Math.round(gap)}″ short of the ${c.t}.` + (rec.spin === 'draw' || rec.spin === 'stun' ? ` At ${speedPhrase(rec.speed)}, the backspin needed for ${rec.spin} from ${Math.round(Math.hypot(tb.x - rec.balls[0].x, tb.y - rec.balls[0].y))}″ away slows the cue ball too much. Hit it harder, or use follow.` : ' Hit it harder.'));
       } else L.push('The cue ball didn’t touch a ball.');
     }
     else if (c.t != null && r.firstHit !== c.t) L.push(`The cue ball hit the ${r.firstHit} before the ${c.t}.`);
@@ -1457,7 +1516,7 @@ function answerQ(rec, id) {
         else L.push(`The ${c.t} went off line and missed the pocket.`);
       }
     } else if (c.safety || c.push) L.push(c.push ? 'You played a push out.' : 'You played a safety.');
-    if (r.scratch) { const sp = r.potted.find(q => q.id === 0); L.push(`The cue ball scratched in the ${pocketName(sp.pk)}.`); if (o && o.variants) { const safe = Object.values(o.variants).filter(x => x.made && !x.scratch && !x.foul).sort((x, y) => y.score - x.score)[0]; if (safe) L.push(`${spinLabel(safe.spin)} at ${speedLabel(safe.speed).toLowerCase()} speed makes the ball without scratching.`); } }
+    if (r.scratch) { const sp = r.potted.find(q => q.id === 0); L.push(`The cue ball scratched in the ${pocketName(sp.pk)}.`); if (o && o.variants) { const safe = Object.values(o.variants).filter(x => x.made && !x.scratch && !x.foul).sort((x, y) => y.score - x.score)[0]; if (safe) L.push(`${spinLabel(safe.spin)} at ${speedPhrase(safe.speed)} makes the ball without scratching.`); } }
     else if (r.balls[0].on) {
       const pots = r.potted.filter(q => q.id !== 0);
       const grp = pots.length && r.firstHit === c.t ? rec.group : oppGroup(rec);
@@ -1469,7 +1528,7 @@ function answerQ(rec, id) {
   } else if (id === 'why') {
     if (a.rec === 'shoot') {
       const tv = top.best;
-      html = `<p>The coach plays the ${top.t} in the ${pocketName(top.pk)} with ${spinLabel(tv.spin).toLowerCase()} at ${speedLabel(tv.speed).toLowerCase()} speed: <strong>${pct(tv.exec)}</strong> to make, <strong>${tv.win ? 'the win' : pct(tv.leave)}</strong> on the next ball.</p>`;
+      html = `<p>The coach plays the ${top.t} in the ${pocketName(top.pk)} with ${spinLabel(tv.spin).toLowerCase()} at ${speedPhrase(tv.speed)}: <strong>${pct(tv.exec)}</strong> to make, <strong>${tv.win ? 'the win' : pct(tv.leave)}</strong> on the next ball.</p>`;
       if (o && o.ok && v) html += `<p>Your ${c.t} in the ${pocketName(c.pk)} (${spinLabel(rec.spin).toLowerCase()}, ${speedLabel(rec.speed).toLowerCase()}): <strong>${pct(v.exec)}</strong> to make, ${v.made && !v.foul ? `<strong>${v.win ? 'the win' : pct(v.leave)}</strong> on the next ball` : 'and it doesn’t pocket cleanly that way'}.</p>`;
       else if (o && !o.ok) html += `<p>Your ${c.t} in the ${pocketName(c.pk)} wasn’t on: ${o.why}.</p>`;
       else if (c.safety) html += '<p>You played safe, but this shot was good enough to go for.</p>';
@@ -1480,8 +1539,9 @@ function answerQ(rec, id) {
     const cp = coachParams(rec); if (cp) { watch.c = { p: cp, label: 'Coach’s shot', name: 'coach' }; html += `<div class="actions">${watchBtn('c')}</div>`; }
   } else if (id === 'variants') {
     html = '<div class="opts-scroll"><table class="opts"><thead><tr><th>Spin</th><th>Speed</th><th>Pots?</th><th>Next ball</th><th></th></tr></thead><tbody>';
-    for (const sp of SPINS) for (const sd of SPEEDS) {
-      const x = o.variants[sp.k + '|' + sd.k]; if (!x) continue;
+    const speedKeys = SPEEDS.map(x => x.k).concat(speedObj(rec.speed).custom ? [rec.speed] : []);
+    for (const sp of SPINS) for (const sd of speedKeys.map(speedObj)) {
+      const x = variantFor(rec.balls, rec.group, o, sp.k, sd.k); if (!x) continue;
       const key = sp.k + sd.k, mine = sp.k === rec.spin && sd.k === rec.speed, best = x === o.best;
       watch[key] = { p: { angle: x.angle, v: speedV(sd.L), s: x.s0 }, label: `${sp.label}, ${sd.label.toLowerCase()}`, name: `${sp.label}, ${sd.label.toLowerCase()}` };
       html += `<tr${mine ? ' class="sel"' : ''}><td>${sp.label}${mine ? ' (yours)' : ''}${best ? ' ★' : ''}</td><td>${sd.label}</td><td class="${x.made && !x.foul ? 'g' : 'b'}">${x.scratch ? 'scratch' : x.made ? 'yes' : 'no'}</td><td class="num">${x.made && !x.foul ? (x.win ? 'win' : pct(x.leave)) : '–'}</td><td>${watchBtn(key)}</td></tr>`;
@@ -1493,7 +1553,7 @@ function answerQ(rec, id) {
       <p>That means your cue ball line can be off by only <strong>±${tolDeg.toFixed(2)}°</strong>. A typical aim error at your skill level is about ${sd.toFixed(2)}°, which makes this about <strong>${pct(o.p)}</strong>.</p>
       <p class="muted">Halving either distance doubles your margin, and a straighter cut helps too (it scales with the cosine of the cut angle).</p>`;
   } else if (id === 'miss') {
-    const base = v && v.made ? v : o.best, sd = SPEEDS.find(x => x.k === base.speed);
+    const base = v && v.made ? v : o.best, sd = speedObj(base.speed);
     const miss = side => {
       const r = simulate(rec.balls, base.angle + side * Math.max(o.cueTol * 2.5, 0.006), speedV(sd.L), base.s0, {});
       if (r.potted.some(q => q.id === c.t)) return null;
@@ -1504,7 +1564,7 @@ function answerQ(rec, id) {
     const thin = miss(1), thick = miss(-1);
     html = `<p>If you miss this ${c.t} on one side, your opponent gets <strong>${thin || 'a shot only if it still drops'}</strong>; on the other side, <strong>${thick || 'a shot only if it still drops'}</strong>.</p><p class="muted">Good players think about where a miss leaves the table. When one side of the miss is much worse, favor the other side, or play safe.</p>`;
   } else if (id === 'throw') {
-    const g = o, sd = SPEEDS.find(x => x.k === rec.speed);
+    const g = o, sd = speedObj(rec.speed);
     const plain = simulate(rec.balls, g.angle, speedV(sd.L), v.s0, {});
     const plainIn = plain.potted.some(q => q.id === c.t && q.pk === c.pk);
     const fol = o.variants['follow|' + rec.speed];
@@ -1520,7 +1580,7 @@ function answerQ(rec, id) {
     else if (r.firstHit > 0) L.push(`It came off and hit the ${r.firstHit} first.`);
     else L.push(r.minGap < 0.15 ? 'It just grazed past the 1.' : `It missed the 1 by ${r.minGap.toFixed(1)}″.`);
     if (same) L.push(`The coach’s aim on that rail is diamond ${dia(diamondOf(rl, same.contact))}${r.firstHit === KICK_T ? '' : `, ${Math.abs(diamondOf(rl, same.contact) - diamondOf(rl, r.firstRail)).toFixed(1)} diamonds from where you hit`}. The mirror point is ${dia(diamondOf(rl, same.mirrorPt))}.`);
-    if (rec.speed !== 'medium') L.push(`You shot at ${speedLabel(rec.speed).toLowerCase()} speed; the coach’s numbers are for medium. Off a rail the cue ball curves as it starts rolling, so speed moves the landing spot.`);
+    if (rec.speed !== 'medium') L.push(`You shot at ${speedPhrase(rec.speed)}; the coach’s numbers are for medium. Off a rail the cue ball curves as it starts rolling, so speed moves the landing spot.`);
     watch.m = { p: rec.shot, label: `Replay · shot ${rec.n}`, name: 'mine' };
     html = `<ul class="reasons">${L.map(x => `<li>${x}</li>`).join('')}</ul><div class="actions">${watchBtn('m')}</div>`;
   } else if (id === 'kspeed') {
@@ -1595,7 +1655,7 @@ function gradeShot(rec) {
 }
 function coachPickText(a) {
   const top = a.offense[0];
-  if (a.rec === 'shoot') return `the ${top.t} in the ${pocketName(top.pk)}, ${spinLabel(top.best.spin).toLowerCase()} at ${speedLabel(top.best.speed).toLowerCase()} speed`;
+  if (a.rec === 'shoot') return `the ${top.t} in the ${pocketName(top.pk)}, ${spinLabel(top.best.spin).toLowerCase()} at ${speedPhrase(top.best.speed)}`;
   if (a.rec === 'safety') return `a safety off the ${a.safety.t}`;
   if (a.rec === 'push') return 'a push out';
   return 'a kick shot';
@@ -1747,7 +1807,7 @@ $('allOpts').addEventListener('change', draw);
 
 $('shootBtn').addEventListener('click', () => {
   if (busy || turnOver) return;
-  const sp = SPINS.find(s => s.k === spin), sd = SPEEDS.find(s => s.k === speed);
+  const sp = SPINS.find(s => s.k === spin), sd = speedObj(speed);
   const cue = state.balls[0];
   if (isKick()) {
     if (call.aim == null) return setStatus('Drag on the table to aim at a rail first.');
@@ -1775,7 +1835,7 @@ $('shootBtn').addEventListener('click', () => {
 });
 
 // Free aim: spin is set for the distance to the first ball on the aim line (or 30 in if none).
-function freeSpin(target, sd) {
+function freeSpin(target, sd) { // sd: speed object
   const hit = rayFirstBall(state.balls[0].x, state.balls[0].y, call.aim);
   return strikeSpin(speedV(sd.L), target, hit ? hit.t : 30);
 }
@@ -1791,7 +1851,7 @@ function playCoach() {
     const o = analysis.offense[0], v = o.best;
     spin = v.spin; speed = v.speed; buildSegs();
     call = { t: o.t, pk: o.pk, safety: false, aim: null }; callChanged();
-    run(v.angle, speedV(SPEEDS.find(s => s.k === v.speed).L), v.s0, { called: { t: o.t, pk: o.pk }, coach: true });
+    run(v.angle, speedV(speedObj(v.speed).L), v.s0, { called: { t: o.t, pk: o.pk }, coach: true });
   } else if (analysis.rec === 'push' && analysis.push) {
     call = { t: null, pk: null, safety: false, aim: null, push: true }; callChanged();
     run(analysis.push.angle, speedV(analysis.push.L), 0, { push: true, coach: true });
