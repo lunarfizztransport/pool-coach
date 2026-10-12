@@ -12,7 +12,8 @@ your call and explains its own.
 
 ## How it works
 
-1. **Pick a game.** 8-ball (you're solids) or 9-ball (lowest ball first).
+1. **Pick a game.** 8-ball (you're solids), 9-ball (lowest ball first, with a
+   push out on the shot after the break), or **Kicks** practice.
 2. **Make your call.** Click a ball, then a pocket. Choose spin (draw, stun,
    follow) and speed (soft, medium, firm, hard). Or press **Play safe**, or
    drag on the table to aim anywhere.
@@ -31,6 +32,17 @@ your call and explains its own.
 - **When to play safe:** if your best pot is under about 45% and a safety
   holds your opponent under 40%, it plays safe, and tells you which ball to
   hit, how thick, and how soft.
+
+- **Push out (9-ball):** it looks for the push that leaves the closest to a
+  50/50 shot, so your opponent's choice doesn't help them, and recommends it
+  when your best pot is under 50%.
+- **Kicks:** for a blocked ball it shows the mirror-system aim (the ball's
+  reflection across the rail), the real aim after the cushion's effect, in
+  diamonds, and which rail gives the most room for error.
+
+After shooting you can ask the coach about your last shot, or review your
+whole run: matches, patterns, the biggest leak, and every shot replayable.
+**Hide coach** keeps it out of the way while you try to run out.
 
 Make chance is estimated from cut angle, cue-to-ball distance and
 ball-to-pocket distance (plus a penalty for steep side-pocket angles).
