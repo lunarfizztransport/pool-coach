@@ -98,6 +98,17 @@ table.opts tr.clickable:hover td, table.opts tr.sel td { background: var(--raise
 .coach-head button { padding: 5px 12px; font-size: 13px; }
 .result { margin: 0; }
 .call-btns { display: flex; gap: 6px; }
+.history { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; display: grid; gap: 10px; }
+.history-head { display: flex; justify-content: space-between; align-items: baseline; gap: 4px 12px; flex-wrap: wrap; }
+.history-head .hint { font-size: 12px; }
+.hchips { display: flex; flex-wrap: wrap; gap: 6px; }
+.hchip { display: inline-flex; align-items: center; gap: 6px; min-width: 44px; padding: 6px 10px; border-radius: 9px; font-variant-numeric: tabular-nums; }
+.hchip .mk { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.hchip.good .mk { background: var(--good); } .hchip.warn .mk { background: var(--warn); } .hchip.bad .mk { background: var(--bad); }
+.hchip.off { opacity: 0.45; text-decoration: line-through; }
+.hchip.sel, .hchip.sel:hover:not(:disabled) { background: var(--fg); color: #000; opacity: 1; }
+.hview { display: grid; gap: 8px; border-top: 1px solid var(--line); padding-top: 10px; }
+.hview .row-btns { display: flex; flex-wrap: wrap; gap: 6px; }
 .notes { display: grid; gap: 14px; }
 .notes h2 { font-family: var(--font-display); font-weight: 700; font-size: 24px; letter-spacing: -0.02em; margin: 0; }
 .notes-grid { display: grid; gap: 12px 28px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
@@ -119,10 +130,15 @@ table.opts tr.clickable:hover td, table.opts tr.sel td { background: var(--raise
       <div id="tableWrap"><canvas id="table" aria-label="Pool table. Click one of your balls, then a pocket. Drag to aim freely."></canvas></div>
       <div class="toolbar">
         <button id="newBtn" type="button">New rack</button>
-        <button id="retryBtn" type="button" disabled>Retry last shot</button>
+        <button id="retryBtn" type="button" disabled>Undo shot</button>
         <span class="spacer"></span>
         <label class="check" id="allOptsLbl"><input type="checkbox" id="allOpts"> Show make % for every pot</label>
       </div>
+      <section class="history" id="history" aria-label="Rack history" hidden>
+        <div class="history-head"><span class="eyebrow">Rack history</span><span class="hint">Click a shot to go back to it. Faded shots were undone.</span></div>
+        <div class="hchips" id="hchips"></div>
+        <div class="hview" id="hview" hidden></div>
+      </section>
       <div class="legend" aria-label="Line legend">
         <span><svg width="26" height="8"><line x1="0" y1="4" x2="26" y2="4" stroke="currentColor" stroke-width="2" stroke-dasharray="4 3"/></svg>Cue ball to contact point</span>
         <span><svg width="26" height="8"><line x1="0" y1="4" x2="26" y2="4" stroke="currentColor" stroke-width="2"/></svg>Object ball to pocket</span>
@@ -520,7 +536,11 @@ let beforeShot = null, busy = false, anim = null, turnOver = false;
 let stats = { calls: 0, good: 0 };
 let drag = null, SC = 1;
 let lastShot = null, reviewing = false, saved = null;
-let inning = [], runView = false, reviewFromRun = false, reviewRec = null, replaying = false; // every shot since the rack started, for the run review
+let inning = [], runView = false, reviewFromRun = false, reviewRec = null, replaying = false;
+// Rack history: every shot taken since New rack, undone ones included. Each shot links to the
+// shot before it (parent); the current line runs from the latest shot (tip) back to the break.
+let rackShots = [], tip = null;
+function syncLine() { const arr = []; for (let r = tip; r; r = r.parent) arr.unshift(r); inning = arr; lastShot = tip; }
 let coachOff = false;
 let pushOk = false; // 9-ball: the first shot after the break may be a push out
 try { coachOff = localStorage.getItem('shotcaller.coachOff') === '1'; } catch (e) {}
@@ -835,7 +855,8 @@ function draw() {
   }
   // balls
   if (anim) {
-    const f = anim.frames[anim.i];
+    const f = anim.frames[Math.min(anim.i, anim.frames.length - 1)];
+    if (anim.label) label(W / 2, 3.4, anim.label, '#ffffff');
     for (let i = 15; i >= 0; i--) if (!Number.isNaN(f[2 * i])) drawBall(f[2 * i], f[2 * i + 1], i);
   } else {
     for (const b of state.balls) if (b.on && b.id !== 0) drawBall(b.x, b.y, b.id);
@@ -889,7 +910,8 @@ function updateButtons() {
   if (isKick()) $('allOptsLbl').hidden = true;
   $('pushBtn').disabled = busy || turnOver || reviewing;
   $('newBtn').disabled = busy || reviewing;
-  $('retryBtn').disabled = busy || !beforeShot || reviewing;
+  $('retryBtn').disabled = busy || !tip || reviewing;
+  renderHistory();
   $('allOptsLbl').hidden = coachOff;
   $('stats').textContent = `Calls graded: ${stats.calls} · Matched the coach: ${stats.good}`;
 }
@@ -973,18 +995,18 @@ function coachHead(label) {
 function renderCoach() {
   const el = $('coach');
   if (coachOff) {
-    el.innerHTML = coachHead('Coach') + '<p class="thinking">Hidden so you can run out on your own. Show it any time, including to look back at your last shot.</p>' + replayButtons(lastShot, false);
+    el.innerHTML = coachHead('Coach') + '<p class="thinking">Hidden so you can run out on your own. Show it any time, including to look back at your last shot. Rack history under the table still lets you replay and go back.</p>';
     return;
   }
   if (isKick()) { el.innerHTML = renderKick(); return; }
   if (runView && !reviewing) { el.innerHTML = renderRun(); return; }
-  const reviewBtn = replayButtons(lastShot, true) + (lastShot && !busy ? `<div class="actions"><button type="button" id="reviewBtn">What did the coach think of my last shot?</button>${inning.length > 1 ? `<button type="button" id="runBtn">Review my whole run (${inning.length} shots)</button>` : ''}</div>` : '');
+  const reviewBtn = (lastShot && !busy ? `<div class="actions"><button type="button" id="reviewBtn">What did the coach think of my last shot?</button>${inning.length > 1 ? `<button type="button" id="runBtn">Review my whole run (${inning.length} shots)</button>` : ''}</div>` : '');
   if (analyzing) { el.innerHTML = coachHead('Coach') + '<p class="thinking">Simulating every option…</p>' + reviewBtn; return; }
   if (!revealed || !analysis) {
     el.innerHTML = coachHead('Coach') + `<p class="thinking">${turnOver ? 'Turn over. Retry the last shot or rack a new table.' : 'Make your call first, then ask the coach.'}</p>` + reviewBtn;
     return;
   }
-  let html = coachHead(reviewing ? 'Coach · your last shot' : 'Coach');
+  let html = coachHead(reviewing && reviewRec ? `Coach · shot ${reviewRec.n}` : 'Coach');
   if (graded && graded.head) html += `<div><span class="pill ${graded.tone === 'good' ? 'good' : graded.tone === 'warn' ? 'warn' : graded.tone === 'bad' ? 'bad' : ''}">${graded.head}</span></div>`;
   const top = analysis.offense[0];
   if (analysis.rec === 'shoot') {
@@ -1034,7 +1056,7 @@ function renderCoach() {
   }
   html += '</tbody></table></div>';
   html += `<p class="hint">Click a row to see its path on the table. ${blocked ? `${blocked} other pot${blocked > 1 ? 's are' : ' is'} blocked, too thin, or behind a rail.` : ''}</p>`;
-  html += reviewing ? replayButtons(reviewRec, true) + `<div class="actions"><button type="button" id="backBtn" class="primary">${reviewFromRun ? 'Back to the run review' : 'Back to the table'}</button></div>`
+  html += reviewing ? `<div class="actions"><button type="button" id="backBtn" class="primary">${reviewFromRun ? 'Back to the run review' : 'Back to now'}</button></div>`
     : `<div class="actions"><button type="button" id="coachShot"${busy || analysis.rec === 'none' ? ' disabled' : ''}>Play the coach’s shot</button></div>`;
   el.innerHTML = html;
   el.querySelectorAll('tr.clickable').forEach(tr => tr.addEventListener('click', () => {
@@ -1077,23 +1099,73 @@ function enterReview(rec, fromRun) {
   analysis = lastShot.analysis; analyzing = false;
   call = { ...lastShot.call }; spin = lastShot.spin; speed = lastShot.speed; buildSegs();
   revealed = true;
-  const g = gradeCall();
+  const g = isKick() ? null : gradeCall();
   graded = g || { head: '', body: '' };
   if (g && g.tone !== 'muted' && !lastShot.counted) { stats.calls++; if (g.good) stats.good++; lastShot.counted = true; }
-  preview = defaultPreview();
+  preview = isKick() ? null : defaultPreview();
   $('callText').textContent = callText(); $('safeBtn').setAttribute('aria-pressed', String(call.safety));
-  setStatus(`<strong>Reviewing ${fromRun ? 'shot ' + (inning.indexOf(rec) + 1) + ' of your run' : 'your last shot'}.</strong> The balls are back where they were before you shot. Your line is yellow, the coach’s pick is white.`);
+  setStatus(`<strong>Shot ${rec.n}.</strong> The balls are back where they were before it.` + (coachOff ? '' : ' Your line is yellow, the coach’s pick is white.'));
+  if (!coachOff) showTab('coach');
   renderCoach(); updateButtons(); draw();
 }
-function exitReview() {
+function exitReview(silent) {
   if (!reviewing) return;
   reviewing = false;
   ({ balls: state.balls, analysis, call, spin, speed, revealed, graded, preview, analyzing } = saved);
   buildSegs();
   $('callText').textContent = callText(); $('safeBtn').setAttribute('aria-pressed', String(call.safety));
   setStatus(saved.status); saved = null;
-  runView = reviewFromRun; if (!reviewFromRun) showTab('call'); reviewFromRun = false;
+  if (!silent) { runView = reviewFromRun; if (!reviewFromRun) showTab('call'); }
+  reviewFromRun = false; reviewRec = null;
   renderCoach(); updateButtons(); draw();
+}
+
+// ---------- Rack history bar ----------
+function recTone(rec) {
+  if (rec.group === 'kick') return rec.kickHit ? 'good' : 'bad';
+  if (rec.cont || /won the rack/.test(rec.result)) return 'good';
+  if (/Foul|Scratch|early/.test(rec.result)) return 'bad';
+  return 'warn';
+}
+const outcomeText = rec => ((rec.result || '').match(/<strong[^>]*>(.*?)<\/strong>/) || [, ''])[1].replace(/\.$/, '');
+function renderHistory() {
+  const box = $('history');
+  box.hidden = !rackShots.length;
+  if (!rackShots.length) return;
+  const onLine = new Set(inning), dis = busy ? ' disabled' : '';
+  $('hchips').innerHTML = rackShots.map((r, i) => `<button type="button" class="hchip ${recTone(r)}${onLine.has(r) ? '' : ' off'}${reviewing && reviewRec === r ? ' sel' : ''}" data-h="${i}" title="Shot ${r.n}: ${callText(r.call)}. ${outcomeText(r)}"${dis}><span class="mk"></span>${r.n}</button>`).join('')
+    + `<button type="button" class="hchip${reviewing ? '' : ' sel'}" data-h="now"${dis}>Now</button>`;
+  const v = $('hview');
+  if (!reviewing || !reviewRec) { v.hidden = true; return; }
+  const r = reviewRec, i = rackShots.indexOf(r);
+  v.hidden = false;
+  v.innerHTML = `<p class="status"><strong>Shot ${r.n}</strong>${onLine.has(r) ? '' : ' (undone)'} · ${callText(r.call)} · ${outcomeText(r) || 'in progress'}</p>
+    <div class="row-btns">
+      <button type="button" data-hact="prev" aria-label="Previous shot"${i <= 0 || busy ? ' disabled' : ''}>◀</button>
+      <button type="button" data-hact="next" aria-label="Next shot"${i >= rackShots.length - 1 || busy ? ' disabled' : ''}>▶</button>
+      <button type="button" data-hact="mine"${dis}>Replay my shot</button>
+      ${coachOff ? '' : `<button type="button" data-hact="coach"${dis}>Watch the coach’s shot</button>`}
+      <button type="button" data-hact="from"${dis}>Play from here</button>
+      <button type="button" data-hact="now" class="primary"${dis}>Back to now</button>
+    </div>`;
+}
+$('history').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b || busy) return;
+  if (b.dataset.h === 'now') return exitReview();
+  if (b.dataset.h != null) return viewShot(rackShots[+b.dataset.h]);
+  const a = b.dataset.hact, i = rackShots.indexOf(reviewRec);
+  if (a === 'prev') viewShot(rackShots[i - 1]);
+  else if (a === 'next') viewShot(rackShots[i + 1]);
+  else if (a === 'mine') replay('mine');
+  else if (a === 'coach') replay('coach');
+  else if (a === 'from') playFrom(reviewRec);
+  else if (a === 'now') exitReview();
+});
+function viewShot(rec) {
+  if (!rec || busy) return;
+  if (reviewing) exitReview(true);
+  enterReview(rec, false);
 }
 
 // ---------- Replays ----------
@@ -1111,22 +1183,31 @@ function replayButtons(rec, withCoach) {
   if (!rec || !rec.shot) return '';
   return `<div class="actions"><button type="button" id="replayMine"${busy ? ' disabled' : ''}>Replay my shot</button>${withCoach ? `<button type="button" id="replayCoach"${busy ? ' disabled' : ''}>Watch the coach’s shot</button>` : ''}</div>`;
 }
+function describeReplay(r, rec, which) {
+  let t = `<strong>${which === 'mine' ? 'Your shot' : 'The coach’s shot'}:</strong> `;
+  if (rec.group === 'kick') return t + (r.firstHit === KICK_T && r.cueRails >= 1 ? 'kicks into the 1.' : r.firstHit > 0 ? `hits the ${r.firstHit} first.` : `misses the 1 by ${Math.max(0, r.minGap).toFixed(1)}″.`);
+  const pots = r.potted.filter(q => q.id !== 0).map(q => q.id);
+  if (r.scratch) t += pots.length ? `pockets the ${pots.join(' and ')} but scratches.` : 'scratches.';
+  else if (r.firstHit < 0) t += 'misses every ball.';
+  else t += pots.length ? `pockets the ${pots.join(' and ')}.` : 'no ball drops.';
+  if (!r.scratch && pots.length && !coachOff) { const nb = bestShot(r.balls, rec.group); t += nb ? ` Leaves ${pct(nb.p)} on the ${nb.t}.` : ' No clean shot after.'; }
+  return t;
+}
 function replay(which) {
   const rec = replayRec();
   if (busy || !rec || !rec.shot) return;
   const p = which === 'mine' ? rec.shot : coachParams(rec);
   if (!p) return setStatus('The coach had no shot to play from that position.');
-  const r = simulate(rec.balls, p.angle, p.v, p.s, { frames: true });
-  const before = $('status').innerHTML;
+  const r = simulate(rec.balls, p.angle, p.v, p.s, { frames: true, watch: rec.group === 'kick' ? KICK_T : null });
   busy = true; replaying = true; updateButtons(); renderCoach();
-  setStatus(which === 'mine' ? 'Replaying your shot…' : 'Watching the coach’s shot…');
+  setStatus(which === 'mine' ? `Replaying shot ${rec.n}…` : `Watching the coach’s shot from before shot ${rec.n}…`);
   const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  anim = { frames: r.frames, i: 0 };
+  anim = { frames: r.frames, i: 0, label: which === 'mine' ? `Replay · shot ${rec.n}` : 'Coach’s shot' };
   const step = () => {
     anim.i += reduce ? 6 : 1;
     if (anim.i >= anim.frames.length - 1) {
-      draw();
-      setTimeout(() => { anim = null; busy = false; replaying = false; setStatus(before); updateButtons(); renderCoach(); draw(); }, 700);
+      anim.i = anim.frames.length - 1; draw();
+      setTimeout(() => { anim = null; busy = false; replaying = false; setStatus(describeReplay(r, rec, which)); updateButtons(); renderCoach(); draw(); }, 1200);
       return;
     }
     draw(); requestAnimationFrame(step);
@@ -1142,8 +1223,8 @@ function longerOrShorter(rail, cue, real, mirror) {
 function renderKick() {
   let html = coachHead('Coach · kicks');
   if (analyzing || !analysis) return html + '<p class="thinking">Working out the kicks…</p>';
-  const cue = (lastKick && turnOver ? lastKick.cue : state.balls[0]);
-  if (lastKick && turnOver) {
+  const cue = (lastKick && turnOver && !reviewing ? lastKick.cue : state.balls[0]);
+  if (lastKick && turnOver && !reviewing) {
     const lk = lastKick;
     let mine = lk.rail ? `You hit the ${lk.rail.name} at diamond <strong>${dia(lk.diamond)}</strong>` : 'Your cue ball didn’t touch a rail first';
     mine += lk.hit ? ' and kicked into the 1. Nice.' : lk.firstHit > 0 ? `, then hit the ${lk.firstHit} first.` : `, and missed the 1 by ${lk.gap.toFixed(1)}″.`;
@@ -1151,8 +1232,7 @@ function renderKick() {
     const same = lk.rail && analysis.working.find(w => w.rail === lk.rail);
     if (same) html += `<p>The coach’s aim on that rail is diamond <strong>${dia(diamondOf(same.rail, same.contact))}</strong>${lk.hit ? '' : `, so you were ${Math.abs(diamondOf(same.rail, same.contact) - lk.diamond).toFixed(1)} diamonds off`}.</p>`;
     else if (lk.rail) html += `<p>No one-rail kick works off the ${lk.rail.name} from here.</p>`;
-    html += '<p class="hint">Press Retry last shot to try it again from the same spot, or open the coach’s answer below.</p>';
-    html += replayButtons(lastShot, revealed);
+    html += '<p class="hint">Press Undo shot to try it again from the same spot. Click the shot in Rack history to replay it.</p>';
     if (!revealed) return html + '<div class="actions"><button type="button" id="kickReveal">Show the coach’s kick</button></div>';
   } else if (!revealed) {
     return html + '<p class="thinking">Try the kick yourself first, then ask the coach.</p>';
@@ -1170,7 +1250,7 @@ function renderKick() {
   if (others.length) r.push(`Also possible: ${others.map(w => `the ${w.rail.name} (diamond ${dia(diamondOf(w.rail, w.contact))}, ${w.window.toFixed(1)}° window)`).join('; ')}.`);
   r.push('Diamonds are numbered from the left corners along the long rails (0–8) and from the top corners along the short rails (0–4).');
   html += `<ul class="reasons">${r.map(x => `<li>${x}</li>`).join('')}</ul>`;
-  if (!turnOver) html += `<div class="actions"><button type="button" id="coachShot">Play the coach’s kick</button></div>`;
+  if (!turnOver && !reviewing) html += `<div class="actions"><button type="button" id="coachShot">Play the coach’s kick</button></div>`;
   return html;
 }
 
@@ -1284,7 +1364,7 @@ $('modeSeg').addEventListener('click', e => {
 function newRack() {
   state = { balls: mode === 'kick' ? genKick() : genRack(mode), group: mode === 'nine' ? 'nine' : mode === 'kick' ? 'kick' : 'solids' };
   lastKick = null;
-  beforeShot = null; lastShot = null; inning = []; runView = false; turnOver = false;
+  rackShots = []; tip = null; syncLine(); runView = false; turnOver = false;
   pushOk = mode === 'nine';
   $('coachDot').hidden = true;
   resetCall(); setStatus(defaultStatus()); startAnalysis(); draw();
@@ -1316,16 +1396,21 @@ $('safeBtn').addEventListener('click', () => {
   setStatus(call.safety ? 'Safety called. Drag on the table to aim it yourself, or shoot to play the coach’s safety.' : defaultStatus());
 });
 $('newBtn').addEventListener('click', newRack);
-$('retryBtn').addEventListener('click', () => {
-  if (!beforeShot || busy) return;
-  state.balls = beforeShot.map(b => ({ ...b }));
-  const undone = inning.pop(); lastShot = inning[inning.length - 1] || null; runView = false;
-  pushOk = !!(undone && undone.pushOk);
-  turnOver = false; resetCall(); setStatus('Position restored. ' + defaultStatus());
-  if (isKick() && analysis && analysis.kick) { revealed = false; lastKick = null; renderCoach(); updateButtons(); }
+$('retryBtn').addEventListener('click', () => playFrom(tip));
+// Go back to the position before a shot and keep playing from there. Later shots stay in the
+// history (faded) so nothing in the rack is lost.
+function playFrom(rec) {
+  if (!rec || busy) return;
+  if (reviewing) exitReview(true);
+  tip = rec.parent; syncLine();
+  state.balls = rec.balls.map(b => ({ ...b }));
+  pushOk = !!rec.pushOk; turnOver = false; runView = false; lastKick = null;
+  resetCall();
+  setStatus(`Back to the position before shot ${rec.n}. ` + defaultStatus());
+  if (rec.analysis) { analysis = rec.analysis; analyzing = false; revealed = false; graded = false; preview = null; renderCoach(); updateButtons(); }
   else startAnalysis();
-  draw();
-});
+  showTab('call'); draw();
+}
 $('allOpts').addEventListener('change', draw);
 
 $('shootBtn').addEventListener('click', () => {
@@ -1378,12 +1463,11 @@ function playCoach() {
 
 function run(angle, v, s, ctxInfo) {
   const ownBefore = isNine() ? lowestOn(state.balls) : ownLeft();
-  beforeShot = state.balls.map(b => ({ ...b }));
-  lastShot = { balls: beforeShot.map(b => ({ ...b })), group: state.group, analysis, call: { ...call }, spin, speed,
-    counted: !!(revealed && graded && graded.tone && graded.tone !== 'muted'), result: '', cont: false, pushOk: isNine() && pushOk };
+  const rec = { balls: state.balls.map(b => ({ ...b })), group: state.group, analysis, call: { ...call }, spin, speed,
+    counted: !!(revealed && graded && graded.tone && graded.tone !== 'muted'), result: '', cont: false, pushOk: isNine() && pushOk,
+    shot: { angle, v, s }, parent: tip, n: rackShots.length + 1 };
   pushOk = false;
-  lastShot.shot = { angle, v, s };
-  inning.push(lastShot); runView = false;
+  rackShots.push(rec); tip = rec; syncLine(); runView = false;
   const r = simulate(state.balls, angle, v, s, { frames: true, watch: isKick() ? KICK_T : null });
   if (isKick()) lastKick = { cue: { ...state.balls[0] }, firstHit: r.firstHit, gap: Math.max(0, r.minGap), rail: r.firstRail ? railByKey(r.firstRail.side) : null,
     diamond: r.firstRail ? diamondOf(railByKey(r.firstRail.side), r.firstRail) : 0, hit: r.firstHit === KICK_T && r.cueRails >= 1 };
@@ -1453,6 +1537,7 @@ function judge(r, info, ownBefore) {
       : r.firstHit === KICK_T ? '<strong class="w">That hit the 1 directly, not off a rail.</strong>'
       : `<strong class="b">Missed.</strong> You came${where} and missed the 1 by ${lk.gap.toFixed(1)}″.`;
     turnOver = true; revealed = false; preview = null;
+    if (lastShot) { lastShot.result = msg; lastShot.kickHit = lk.hit; }
     call = { t: null, pk: null, safety: false, aim: null };
     $('callText').textContent = callText();
     setStatus(msg + ' <span class="muted">Retry the kick, or press New rack for a new one.</span>');
