@@ -20,8 +20,9 @@ your call and explains its own.
 3. **Ask the coach.** It grades your call against every option it simulated
    and shows its pick on the table: the aim line, where the cue ball travels,
    and the next ball it sets up.
-4. **Shoot.** Play your call or the coach's and watch it run. **Retry last
-   shot** puts the balls back so you can try the other way.
+4. **Shoot.** Play your call or the coach's and watch it run. **Undo shot**
+   steps back one shot at a time, and **Rack history** lets you revisit,
+   replay or play on from any shot in the rack.
 
 ## What the coach is weighing
 
@@ -44,28 +45,49 @@ After shooting you can ask the coach about your last shot, or review your
 whole run: matches, patterns, the biggest leak, and every shot replayable.
 **Hide coach** keeps it out of the way while you try to run out.
 
-Make chance is estimated from cut angle, cue-to-ball distance and
-ball-to-pocket distance (plus a penalty for steep side-pocket angles).
+Make chance uses Dr. Dave Alciatore's margin-of-error formula: how far your aim
+can be off and still pocket the ball, given the distances, the cut angle and the
+pocket size, compared with a typical aim error for the **skill level** you pick.
 
 ## How it's built
 
 One self-contained `index.html`: no build step, no framework, no server. The
 table is drawn on a canvas.
 
-- **Physics:** a 9 ft table (100 × 50 in) with rolling friction, cushion
-  rebounds, ball-to-ball collisions and pockets, stepped at 400 Hz.
-- **Spin:** after first contact the cue ball keeps its tangent speed, then
-  friction blends in its spin: `v = 5/7 · v_tangent + 2/7 · spin · v_before`.
-  This gives the 90° rule for stun and the forward/back bend of follow and
-  draw. Draw weakens over distance.
-- **Coach:** for every legal ball and pocket it aims with the ghost ball,
-  runs the full simulation for each spin and speed, and scores the leave by
-  finding your best shot from where the cue ball stops. Safeties are
-  simulated across 7 hit thicknesses × 3 speeds. A full analysis takes about
-  0.3 seconds.
+- **Physics:** a 9 ft table (100 × 50 in), stepped at 400 Hz. Each ball slides
+  until cloth friction turns it into natural roll, so the cue ball curves into
+  its final line after contact and draw fades with distance. Rails bounce
+  the ball off with stun.
+- **Throw:** ball-to-ball friction drags the object ball off the ghost-ball
+  line on cuts. The game, and the coach's aim, allow for it.
+- **Spin buttons** set the spin at contact (stun, follow, draw). The hit
+  needed for that distance is worked out, capped at the most spin a cue
+  tip can give.
+- **Coach:** for every legal ball and pocket it finds the aim that pockets the
+  ball (allowing for throw), runs the full simulation for each spin and speed,
+  and scores the leave by finding your best shot from where the cue ball
+  stops. Safeties are simulated across 7 hit thicknesses × 3 speeds.
 
-**Simplified on purpose:** no left/right english, throw, jump or masse
-shots. Trust the ranking of options more than the exact percentages.
+### Where the numbers come from
+
+All from Dr. Dave Alciatore's technical proofs ([billiards.colostate.edu](https://billiards.colostate.edu)):
+
+| What | Value | Source |
+|---|---|---|
+| Cloth rolling resistance / sliding friction | 0.01 / 0.2 | TP B.6 |
+| Rail rebound | 0.7, ball rebounds with stun | TP B.6 |
+| Ball-to-ball rebound | 0.94 | TP A.6 |
+| Ball-to-ball friction (throw) | 0.00995 + 0.108·e^(−1.088·v), v in m/s | TP A.14 (fit to Marlow's data) |
+| Make chance | margin of error = pocket size × 2R·cos(cut) ÷ (d₁·d₂); pocket size ≈ mouth − 2 in | TP 3.4 |
+| Shot speeds | 1.5, 3, 5, 8 mph | TP B.6 |
+
+Checked against those sources, rolling distances match within 5% and throw
+curves within about half a degree.
+
+**Estimates:** the skill levels (set so a long half-ball cut goes in about 25%,
+45% and 75% of the time), how much a pocket shrinks at an angle, and the
+strategy thresholds. **Not modeled:** left/right English, squirt and swerve,
+jump and masse shots, banks and combinations as options, pocket rattles.
 
 ## Run it locally
 
