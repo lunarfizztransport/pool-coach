@@ -442,6 +442,7 @@ let beforeShot = null, busy = false, anim = null, turnOver = false;
 let stats = { calls: 0, good: 0 };
 let drag = null, SC = 1;
 let lastShot = null, reviewing = false, saved = null;
+let inning = [], runView = false, reviewFromRun = false; // every shot since the rack started, for the run review
 let coachOff = false;
 try { coachOff = localStorage.getItem('shotcaller.coachOff') === '1'; } catch (e) {}
 const peek = text => coachOff ? '' : text;
@@ -701,11 +702,11 @@ function buildSegs() {
 $('spinSeg').addEventListener('click', e => { const b = e.target.closest('button'); if (!b || busy || reviewing) return; spin = b.dataset.k; buildSegs(); callChanged(); });
 $('speedSeg').addEventListener('click', e => { const b = e.target.closest('button'); if (!b || busy || reviewing) return; speed = b.dataset.k; buildSegs(); callChanged(); });
 
-function callText() {
-  if (call.aim != null) return (call.safety ? 'Safety, ' : '') + 'free aim';
-  if (call.safety) return 'Play safe';
-  if (call.t != null && call.pk != null) return `${call.t}-ball, ${pocketName(call.pk)}`;
-  if (call.t != null) return `${call.t}-ball, now pick a pocket`;
+function callText(c = call) {
+  if (c.aim != null) return (c.safety ? 'Safety, ' : '') + 'free aim';
+  if (c.safety) return 'Play safe';
+  if (c.t != null && c.pk != null) return `${c.t}-ball, ${pocketName(c.pk)}`;
+  if (c.t != null) return `${c.t}-ball, now pick a pocket`;
   return 'nothing yet';
 }
 function callChanged() {
@@ -795,7 +796,8 @@ function renderCoach() {
     el.innerHTML = coachHead('Coach') + '<p class="thinking">Hidden so you can run out on your own. Show it any time, including to look back at your last shot.</p>';
     return;
   }
-  const reviewBtn = lastShot && !busy ? '<div class="actions"><button type="button" id="reviewBtn">What did the coach think of my last shot?</button></div>' : '';
+  if (runView && !reviewing) { el.innerHTML = renderRun(); return; }
+  const reviewBtn = lastShot && !busy ? `<div class="actions"><button type="button" id="reviewBtn">What did the coach think of my last shot?</button>${inning.length > 1 ? `<button type="button" id="runBtn">Review my whole run (${inning.length} shots)</button>` : ''}</div>` : '';
   if (analyzing) { el.innerHTML = coachHead('Coach') + '<p class="thinking">Simulating every option…</p>' + reviewBtn; return; }
   if (!revealed || !analysis) {
     el.innerHTML = coachHead('Coach') + `<p class="thinking">${turnOver ? 'Turn over. Retry the last shot or rack a new table.' : 'Make your call first, then ask the coach.'}</p>` + reviewBtn;
@@ -837,7 +839,7 @@ function renderCoach() {
   }
   html += '</tbody></table></div>';
   html += `<p class="hint">Click a row to see its path on the table. ${blocked ? `${blocked} other pot${blocked > 1 ? 's are' : ' is'} blocked, too thin, or behind a rail.` : ''}</p>`;
-  html += reviewing ? '<div class="actions"><button type="button" id="backBtn" class="primary">Back to the table</button></div>'
+  html += reviewing ? `<div class="actions"><button type="button" id="backBtn" class="primary">${reviewFromRun ? 'Back to the run review' : 'Back to the table'}</button></div>`
     : `<div class="actions"><button type="button" id="coachShot"${busy || analysis.rec === 'none' ? ' disabled' : ''}>Play the coach’s shot</button></div>`;
   el.innerHTML = html;
   el.querySelectorAll('tr.clickable').forEach(tr => tr.addEventListener('click', () => {
@@ -849,7 +851,10 @@ function renderCoach() {
 }
 $('coach').addEventListener('click', e => {
   if (e.target.closest('#coachToggle')) toggleCoach();
-  else if (e.target.closest('#reviewBtn')) enterReview();
+  else if (e.target.closest('#reviewBtn')) enterReview(lastShot, false);
+  else if (e.target.closest('#runBtn')) openRun();
+  else if (e.target.closest('#runBack')) { runView = false; renderCoach(); }
+  else if (e.target.closest('tr[data-shot]')) enterReview(inning[+e.target.closest('tr[data-shot]').dataset.shot], true);
   else if (e.target.closest('#backBtn')) exitReview();
   else if (e.target.closest('#coachShot')) playCoach();
 });
@@ -863,10 +868,11 @@ function toggleCoach() {
 }
 
 // Review: put the balls back where they were before the last shot and grade it.
-function enterReview() {
-  if (!lastShot || busy || reviewing) return;
+function enterReview(rec, fromRun) {
+  if (!rec || busy || reviewing) return;
+  const lastShot = rec;
   saved = { balls: state.balls, analysis, call, spin, speed, revealed, graded, preview, analyzing, status: $('status').innerHTML };
-  reviewing = true;
+  reviewing = true; reviewFromRun = fromRun;
   state.balls = lastShot.balls.map(b => ({ ...b }));
   if (!lastShot.analysis) lastShot.analysis = analyze(lastShot.balls, lastShot.group);
   analysis = lastShot.analysis; analyzing = false;
@@ -877,7 +883,7 @@ function enterReview() {
   if (g && g.tone !== 'muted' && !lastShot.counted) { stats.calls++; if (g.good) stats.good++; lastShot.counted = true; }
   preview = defaultPreview();
   $('callText').textContent = callText(); $('safeBtn').setAttribute('aria-pressed', String(call.safety));
-  setStatus('<strong>Reviewing your last shot.</strong> The balls are back where they were before you shot. Your line is yellow, the coach’s pick is white.');
+  setStatus(`<strong>Reviewing ${fromRun ? 'shot ' + (inning.indexOf(rec) + 1) + ' of your run' : 'your last shot'}.</strong> The balls are back where they were before you shot. Your line is yellow, the coach’s pick is white.`);
   renderCoach(); updateButtons(); draw();
 }
 function exitReview() {
@@ -887,7 +893,75 @@ function exitReview() {
   buildSegs();
   $('callText').textContent = callText(); $('safeBtn').setAttribute('aria-pressed', String(call.safety));
   setStatus(saved.status); saved = null;
+  runView = reviewFromRun; reviewFromRun = false;
   renderCoach(); updateButtons(); draw();
+}
+
+// ---------- Run review ----------
+function gradeShot(rec) {
+  if (!rec.analysis) rec.analysis = analyze(rec.balls, rec.group);
+  const keep = { analysis, call, spin, speed };
+  analysis = rec.analysis; call = rec.call; spin = rec.spin; speed = rec.speed;
+  const g = gradeCall();
+  ({ analysis, call, spin, speed } = keep);
+  if (g && g.tone !== 'muted' && !rec.counted) { stats.calls++; if (g.good) stats.good++; rec.counted = true; }
+  return g;
+}
+function coachPickText(a) {
+  const top = a.offense[0];
+  if (a.rec === 'shoot') return `the ${top.t} in the ${pocketName(top.pk)}, ${spinLabel(top.best.spin).toLowerCase()} at ${speedLabel(top.best.speed).toLowerCase()} speed`;
+  if (a.rec === 'safety') return `a safety off the ${a.safety.t}`;
+  return 'a kick shot';
+}
+function shotKind(rec) {
+  const a = rec.analysis, c = rec.call, top = a.offense[0];
+  if (c.aim != null) return 'free';
+  if (c.safety) return a.rec === 'safety' ? 'match' : 'safeVsShoot';
+  if (c.t == null || c.pk == null) return 'free';
+  if (a.rec === 'safety') return 'shootVsSafe';
+  if (top && c.t === top.t && c.pk === top.pk) return rec.spin === top.best.spin && rec.speed === top.best.speed ? 'match' : 'cueBall';
+  return 'choice';
+}
+function openRun() {
+  if (busy || inning.length < 2) return;
+  runView = true;
+  if (inning.some(r => !r.analysis)) {
+    $('coach').innerHTML = coachHead('Coach · your run') + `<p class="thinking">Reviewing ${inning.length} shots…</p>`;
+    setTimeout(() => { renderCoach(); updateButtons(); }, 30);
+  } else { renderCoach(); updateButtons(); }
+}
+function renderRun() {
+  const rows = inning.map((rec, i) => ({ rec, i, g: gradeShot(rec), kind: shotKind(rec) }));
+  const graded = rows.filter(r => r.g && r.g.tone !== 'muted');
+  const matched = rows.filter(r => r.kind === 'match').length;
+  const made = inning.filter(r => r.cont).length + (/won the rack/.test(inning[inning.length - 1].result) ? 1 : 0);
+  const outcome = r => ((r.result || '').match(/<strong[^>]*>(.*?)<\/strong>/) || [, ''])[1].replace(/\.$/, '');
+  const count = k => rows.filter(r => r.kind === k).length;
+  const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+  let html = coachHead('Coach · your run');
+  html += `<p class="pick">${matched} of ${graded.length} graded shot${graded.length === 1 ? '' : 's'} matched the coach</p>`;
+  html += `<div class="chips"><span class="chip">${plural(inning.length, 'shot')}</span><span class="chip">${plural(made, 'ball')} made</span><span class="chip">ended: ${outcome(inning[inning.length - 1]) || 'still shooting'}</span></div>`;
+  const notes = [];
+  if (count('cueBall')) notes.push(`Right pot, different spin or speed on ${plural(count('cueBall'), 'shot')}. Your ball choice was good, so work on cue ball control.`);
+  if (count('choice')) notes.push(`You picked a different ball or pocket than the coach on ${plural(count('choice'), 'shot')}. Look one ball further ahead before you choose.`);
+  if (count('shootVsSafe')) notes.push(`You went for it ${count('shootVsSafe') === 1 ? 'once' : count('shootVsSafe') + ' times'} when the coach would have played safe.`);
+  if (count('safeVsShoot')) notes.push(`You played safe ${count('safeVsShoot') === 1 ? 'once' : count('safeVsShoot') + ' times'} when you had a good shot.`);
+  if (count('free')) notes.push(`${plural(count('free'), 'free-aim shot')} ${count('free') === 1 ? 'isn’t' : 'aren’t'} graded.`);
+  if (graded.length && matched === graded.length) notes.push('You matched the coach on every graded shot. That’s a clean run.');
+  if (notes.length) html += `<ul class="reasons">${notes.map(n => `<li>${n}</li>`).join('')}</ul>`;
+  const leak = rows.find(r => r.g && r.g.tone === 'bad') || rows.find(r => r.g && r.g.tone === 'warn');
+  if (leak) html += `<div class="yours"><span class="eyebrow">Biggest leak · shot ${leak.i + 1}</span><p>You played ${callText(leak.rec.call)}. ${leak.g.body}</p><p>The coach would play ${coachPickText(leak.rec.analysis)}.</p></div>`;
+  html += '<div class="opts-scroll"><table class="opts"><thead><tr><th>#</th><th>Your call</th><th>Grade</th><th>Result</th></tr></thead><tbody>';
+  for (const r of rows) {
+    const tone = r.g ? r.g.tone : 'muted';
+    const pill = r.g && r.g.tone !== 'muted' ? `<span class="pill ${tone}">${r.g.head}</span>` : '<span class="muted">not graded</span>';
+    html += `<tr class="clickable" data-shot="${r.i}"><td class="num">${r.i + 1}</td><td>${callText(r.rec.call)}${r.rec.call.aim == null && !r.rec.call.safety ? `, ${spinLabel(r.rec.spin).toLowerCase()}, ${speedLabel(r.rec.speed).toLowerCase()}` : ''}</td><td>${pill}</td><td>${outcome(r.rec)}</td></tr>`;
+  }
+  html += '</tbody></table></div>';
+  html += '<p class="hint">Click a shot to put the balls back and see your line next to the coach’s.</p>';
+  html += '<div class="actions"><button type="button" id="runBack">Back to the table</button></div>';
+  updateButtons();
+  return html;
 }
 
 function defaultPreview() {
@@ -928,7 +1002,7 @@ $('modeSeg').addEventListener('click', e => {
 
 function newRack() {
   state = { balls: genRack(mode), group: mode === 'nine' ? 'nine' : 'solids' };
-  beforeShot = null; lastShot = null; turnOver = false;
+  beforeShot = null; lastShot = null; inning = []; runView = false; turnOver = false;
   resetCall(); setStatus(defaultStatus()); startAnalysis(); draw();
 }
 
@@ -953,6 +1027,7 @@ $('newBtn').addEventListener('click', newRack);
 $('retryBtn').addEventListener('click', () => {
   if (!beforeShot || busy) return;
   state.balls = beforeShot.map(b => ({ ...b }));
+  inning.pop(); lastShot = inning[inning.length - 1] || null; runView = false;
   turnOver = false; resetCall(); setStatus('Position restored. ' + defaultStatus()); startAnalysis(); draw();
 });
 $('allOpts').addEventListener('change', draw);
@@ -991,7 +1066,8 @@ function run(angle, v, s, ctxInfo) {
   const ownBefore = isNine() ? lowestOn(state.balls) : ownLeft();
   beforeShot = state.balls.map(b => ({ ...b }));
   lastShot = { balls: beforeShot.map(b => ({ ...b })), group: state.group, analysis, call: { ...call }, spin, speed,
-    counted: !!(revealed && graded && graded.tone && graded.tone !== 'muted'), result: '' };
+    counted: !!(revealed && graded && graded.tone && graded.tone !== 'muted'), result: '', cont: false };
+  inning.push(lastShot); runView = false;
   const r = simulate(state.balls, angle, v, s, { frames: true });
   busy = true; preview = null; updateButtons();
   setStatus('Shooting…');
@@ -1070,7 +1146,7 @@ function judge(r, info, ownBefore) {
 }
 
 function finishTurn(msg, cont) {
-  if (lastShot) lastShot.result = msg;
+  if (lastShot) { lastShot.result = msg; lastShot.cont = cont; }
   turnOver = !cont;
   call = { t: cont && isNine() ? lowestOn(state.balls) : null, pk: null, safety: false, aim: null };
   $('callText').textContent = callText(); $('safeBtn').setAttribute('aria-pressed', 'false');
