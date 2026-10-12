@@ -90,6 +90,9 @@ table.opts tr.clickable:hover td, table.opts tr.sel td { background: var(--raise
 .g { color: var(--good); } .w { color: var(--warn); } .b { color: var(--bad); }
 .muted { color: var(--muted); }
 .thinking { color: var(--muted); margin: 0; }
+.coach-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.coach-head button { padding: 5px 12px; font-size: 13px; }
+.result { margin: 0; }
 .notes { display: grid; gap: 14px; }
 .notes h2 { font-family: var(--font-display); font-weight: 700; font-size: 24px; letter-spacing: -0.02em; margin: 0; }
 .notes-grid { display: grid; gap: 12px 28px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
@@ -113,7 +116,7 @@ table.opts tr.clickable:hover td, table.opts tr.sel td { background: var(--raise
         <button id="newBtn" type="button">New rack</button>
         <button id="retryBtn" type="button" disabled>Retry last shot</button>
         <span class="spacer"></span>
-        <label class="check"><input type="checkbox" id="allOpts"> Show make % for every pot</label>
+        <label class="check" id="allOptsLbl"><input type="checkbox" id="allOpts"> Show make % for every pot</label>
       </div>
       <div class="legend" aria-label="Line legend">
         <span><svg width="26" height="8"><line x1="0" y1="4" x2="26" y2="4" stroke="currentColor" stroke-width="2" stroke-dasharray="4 3"/></svg>Cue ball to contact point</span>
@@ -438,6 +441,10 @@ let revealed = false, preview = null, graded = false;
 let beforeShot = null, busy = false, anim = null, turnOver = false;
 let stats = { calls: 0, good: 0 };
 let drag = null, SC = 1;
+let lastShot = null, reviewing = false, saved = null;
+let coachOff = false;
+try { coachOff = localStorage.getItem('shotcaller.coachOff') === '1'; } catch (e) {}
+const peek = text => coachOff ? '' : text;
 
 // ---------- Rack generation ----------
 function rnd(a, b) { return a + Math.random() * (b - a); }
@@ -620,7 +627,7 @@ function draw() {
   const cue = state.balls[0];
   if (!anim && cue && cue.on) {
     // every-pot overlay
-    if ($('allOpts').checked && analysis) {
+    if ($('allOpts').checked && analysis && !coachOff) {
       for (const o of analysis.options) {
         if (!o.ok) continue;
         const ob = state.balls[o.t], pk = POCKETS[o.pk];
@@ -633,7 +640,7 @@ function draw() {
       }
     }
     // coach preview
-    if (revealed && preview) {
+    if (revealed && preview && !coachOff) {
       if (preview.kind === 'shot') {
         const o = preview.o, v = preview.v;
         drawShotLines(o, '#ffffff');
@@ -672,7 +679,7 @@ function draw() {
     } else if (call.t != null) {
       const tb = state.balls[call.t];
       ring(tb.x, tb.y, R + 0.55, '#ffe9a8', 0.22);
-      if (call.pk != null && !(revealed && preview)) drawShotLines(shotGeom(cue, tb, call.pk, state.balls), '#ffe9a8');
+      if (call.pk != null && (reviewing || !(revealed && preview))) drawShotLines(shotGeom(cue, tb, call.pk, state.balls), '#ffe9a8');
       if (call.pk != null) ring(POCKETS[call.pk].cx, POCKETS[call.pk].cy, 3.3, '#ffe9a8', 0.25);
     }
   }
@@ -691,8 +698,8 @@ function buildSegs() {
   $('spinSeg').innerHTML = SPINS.map(s => `<button type="button" data-k="${s.k}" aria-pressed="${s.k === spin}">${s.label}</button>`).join('');
   $('speedSeg').innerHTML = SPEEDS.map(s => `<button type="button" data-k="${s.k}" aria-pressed="${s.k === speed}">${s.label}</button>`).join('');
 }
-$('spinSeg').addEventListener('click', e => { const b = e.target.closest('button'); if (!b || busy) return; spin = b.dataset.k; buildSegs(); callChanged(); });
-$('speedSeg').addEventListener('click', e => { const b = e.target.closest('button'); if (!b || busy) return; speed = b.dataset.k; buildSegs(); callChanged(); });
+$('spinSeg').addEventListener('click', e => { const b = e.target.closest('button'); if (!b || busy || reviewing) return; spin = b.dataset.k; buildSegs(); callChanged(); });
+$('speedSeg').addEventListener('click', e => { const b = e.target.closest('button'); if (!b || busy || reviewing) return; speed = b.dataset.k; buildSegs(); callChanged(); });
 
 function callText() {
   if (call.aim != null) return (call.safety ? 'Safety, ' : '') + 'free aim';
@@ -709,11 +716,13 @@ function callChanged() {
 }
 function setStatus(html) { $('status').innerHTML = html; }
 function updateButtons() {
-  $('askBtn').disabled = busy || turnOver || analyzing || revealed;
-  $('shootBtn').disabled = busy || turnOver;
-  $('safeBtn').disabled = busy || turnOver;
-  $('newBtn').disabled = busy;
-  $('retryBtn').disabled = busy || !beforeShot;
+  $('askBtn').hidden = coachOff;
+  $('askBtn').disabled = busy || turnOver || analyzing || revealed || reviewing;
+  $('shootBtn').disabled = busy || turnOver || reviewing;
+  $('safeBtn').disabled = busy || turnOver || reviewing;
+  $('newBtn').disabled = busy || reviewing;
+  $('retryBtn').disabled = busy || !beforeShot || reviewing;
+  $('allOptsLbl').hidden = coachOff;
   $('stats').textContent = `Calls graded: ${stats.calls} · Matched the coach: ${stats.good}`;
 }
 
@@ -777,14 +786,22 @@ function reasonsFor(o, v) {
   return r;
 }
 
+function coachHead(label) {
+  return `<div class="coach-head"><p class="eyebrow">${label}</p><button type="button" id="coachToggle" aria-pressed="${coachOff}">${coachOff ? 'Show coach' : 'Hide coach'}</button></div>`;
+}
 function renderCoach() {
   const el = $('coach');
-  if (analyzing) { el.innerHTML = '<p class="eyebrow">Coach</p><p class="thinking">Simulating every option…</p>'; return; }
-  if (!revealed || !analysis) {
-    el.innerHTML = `<p class="eyebrow">Coach</p><p class="thinking">${turnOver ? 'Turn over. Retry the last shot or rack a new table.' : 'Make your call first, then ask the coach.'}</p>`;
+  if (coachOff) {
+    el.innerHTML = coachHead('Coach') + '<p class="thinking">Hidden so you can run out on your own. Show it any time, including to look back at your last shot.</p>';
     return;
   }
-  let html = '<p class="eyebrow">Coach</p>';
+  const reviewBtn = lastShot && !busy ? '<div class="actions"><button type="button" id="reviewBtn">What did the coach think of my last shot?</button></div>' : '';
+  if (analyzing) { el.innerHTML = coachHead('Coach') + '<p class="thinking">Simulating every option…</p>' + reviewBtn; return; }
+  if (!revealed || !analysis) {
+    el.innerHTML = coachHead('Coach') + `<p class="thinking">${turnOver ? 'Turn over. Retry the last shot or rack a new table.' : 'Make your call first, then ask the coach.'}</p>` + reviewBtn;
+    return;
+  }
+  let html = coachHead(reviewing ? 'Coach · your last shot' : 'Coach');
   if (graded && graded.head) html += `<div><span class="pill ${graded.tone === 'good' ? 'good' : graded.tone === 'warn' ? 'warn' : graded.tone === 'bad' ? 'bad' : ''}">${graded.head}</span></div>`;
   const top = analysis.offense[0];
   if (analysis.rec === 'shoot') {
@@ -804,7 +821,7 @@ function renderCoach() {
   } else {
     html += '<p class="pick">No clean option</p><ul class="reasons"><li>Every pot is blocked and no direct safety works. This calls for a kick shot off a rail.</li></ul>';
   }
-  if (graded && graded.body) html += `<div class="yours"><span class="eyebrow">Your call: ${callText()}</span><p>${graded.body}</p></div>`;
+  if (graded && graded.body) html += `<div class="yours"><span class="eyebrow">Your call: ${callText()}</span><p>${graded.body}</p>${reviewing && lastShot.result ? `<p class="result muted">What happened: ${lastShot.result}</p>` : ''}</div>`;
   // options table
   const rows = analysis.offense.slice(0, 7);
   const blocked = analysis.options.filter(o => !o.ok).length;
@@ -820,7 +837,8 @@ function renderCoach() {
   }
   html += '</tbody></table></div>';
   html += `<p class="hint">Click a row to see its path on the table. ${blocked ? `${blocked} other pot${blocked > 1 ? 's are' : ' is'} blocked, too thin, or behind a rail.` : ''}</p>`;
-  html += `<div class="actions"><button type="button" id="coachShot">Play the coach’s shot</button></div>`;
+  html += reviewing ? '<div class="actions"><button type="button" id="backBtn" class="primary">Back to the table</button></div>'
+    : `<div class="actions"><button type="button" id="coachShot"${busy || analysis.rec === 'none' ? ' disabled' : ''}>Play the coach’s shot</button></div>`;
   el.innerHTML = html;
   el.querySelectorAll('tr.clickable').forEach(tr => tr.addEventListener('click', () => {
     const k = tr.dataset.key;
@@ -828,8 +846,48 @@ function renderCoach() {
     else { const o = analysis.offense.find(x => 'o' + x.t + '_' + x.pk === k); preview = { kind: 'shot', o, v: o.best }; }
     renderCoach(); draw();
   }));
-  const cb = $('coachShot');
-  if (cb) { cb.disabled = busy || analysis.rec === 'none'; cb.addEventListener('click', playCoach); }
+}
+$('coach').addEventListener('click', e => {
+  if (e.target.closest('#coachToggle')) toggleCoach();
+  else if (e.target.closest('#reviewBtn')) enterReview();
+  else if (e.target.closest('#backBtn')) exitReview();
+  else if (e.target.closest('#coachShot')) playCoach();
+});
+
+function toggleCoach() {
+  if (reviewing) exitReview();
+  coachOff = !coachOff;
+  try { localStorage.setItem('shotcaller.coachOff', coachOff ? '1' : '0'); } catch (e) {}
+  if (coachOff) { revealed = false; graded = false; preview = null; }
+  renderCoach(); updateButtons(); draw();
+}
+
+// Review: put the balls back where they were before the last shot and grade it.
+function enterReview() {
+  if (!lastShot || busy || reviewing) return;
+  saved = { balls: state.balls, analysis, call, spin, speed, revealed, graded, preview, analyzing, status: $('status').innerHTML };
+  reviewing = true;
+  state.balls = lastShot.balls.map(b => ({ ...b }));
+  if (!lastShot.analysis) lastShot.analysis = analyze(lastShot.balls, lastShot.group);
+  analysis = lastShot.analysis; analyzing = false;
+  call = { ...lastShot.call }; spin = lastShot.spin; speed = lastShot.speed; buildSegs();
+  revealed = true;
+  const g = gradeCall();
+  graded = g || { head: '', body: '' };
+  if (g && g.tone !== 'muted' && !lastShot.counted) { stats.calls++; if (g.good) stats.good++; lastShot.counted = true; }
+  preview = defaultPreview();
+  $('callText').textContent = callText(); $('safeBtn').setAttribute('aria-pressed', String(call.safety));
+  setStatus('<strong>Reviewing your last shot.</strong> The balls are back where they were before you shot. Your line is yellow, the coach’s pick is white.');
+  renderCoach(); updateButtons(); draw();
+}
+function exitReview() {
+  if (!reviewing) return;
+  reviewing = false;
+  ({ balls: state.balls, analysis, call, spin, speed, revealed, graded, preview, analyzing } = saved);
+  buildSegs();
+  $('callText').textContent = callText(); $('safeBtn').setAttribute('aria-pressed', String(call.safety));
+  setStatus(saved.status); saved = null;
+  renderCoach(); updateButtons(); draw();
 }
 
 function defaultPreview() {
@@ -843,9 +901,12 @@ function defaultPreview() {
 function startAnalysis() {
   analysis = null; analyzing = true; revealed = false; graded = false; preview = null;
   renderCoach(); updateButtons();
+  const balls = state.balls, group = state.group;
   setTimeout(() => {
-    analysis = analyze(state.balls, state.group);
-    analyzing = false;
+    const a = analyze(balls, group);
+    if (reviewing && saved && saved.balls === balls) { saved.analysis = a; saved.analyzing = false; return; }
+    if (balls !== state.balls) return;
+    analysis = a; analyzing = false;
     renderCoach(); updateButtons(); draw();
   }, 30);
 }
@@ -861,13 +922,13 @@ function buildModeSeg() {
 }
 $('modeSeg').addEventListener('click', e => {
   const b = e.target.closest('button');
-  if (!b || busy || b.dataset.k === mode) return;
+  if (!b || busy || reviewing || b.dataset.k === mode) return;
   mode = b.dataset.k; buildModeSeg(); newRack();
 });
 
 function newRack() {
   state = { balls: genRack(mode), group: mode === 'nine' ? 'nine' : 'solids' };
-  beforeShot = null; turnOver = false;
+  beforeShot = null; lastShot = null; turnOver = false;
   resetCall(); setStatus(defaultStatus()); startAnalysis(); draw();
 }
 
@@ -921,6 +982,7 @@ function playCoach() {
     call = { t: o.t, pk: o.pk, safety: false, aim: null }; callChanged();
     run(o.angle, speedV(SPEEDS.find(s => s.k === v.speed).L), SPINS.find(s => s.k === v.spin).s, { called: { t: o.t, pk: o.pk }, coach: true });
   } else if (analysis.safety) {
+    call = { t: null, pk: null, safety: true, aim: null }; callChanged();
     run(analysis.safety.angle, speedV(analysis.safety.L), 0, { safety: true, coach: true });
   }
 }
@@ -928,6 +990,8 @@ function playCoach() {
 function run(angle, v, s, ctxInfo) {
   const ownBefore = isNine() ? lowestOn(state.balls) : ownLeft();
   beforeShot = state.balls.map(b => ({ ...b }));
+  lastShot = { balls: beforeShot.map(b => ({ ...b })), group: state.group, analysis, call: { ...call }, spin, speed,
+    counted: !!(revealed && graded && graded.tone && graded.tone !== 'muted'), result: '' };
   const r = simulate(state.balls, angle, v, s, { frames: true });
   busy = true; preview = null; updateButtons();
   setStatus('Shooting…');
@@ -936,7 +1000,7 @@ function run(angle, v, s, ctxInfo) {
   const step = () => {
     anim.i += reduce ? 6 : 1;
     if (anim.i >= anim.frames.length - 1) {
-      anim = null; busy = false; state.balls = r.balls;
+      anim = null; busy = false; state.balls = r.balls.map(b => ({ ...b }));
       judge(r, ctxInfo, ownBefore);
       return;
     }
@@ -968,10 +1032,10 @@ function judgeNine(r, info, lowBefore) {
     cont = true;
   } else if (legal && info.safety) {
     const nb = bestShot(state.balls, 'nine');
-    msg = r.rail ? `<strong>Safety played.</strong> Your opponent’s best shot now: ${nb ? pct(nb.p) + ' on the ' + nb.t : 'nothing makeable'}.` : '<strong class="b">Foul.</strong> No ball reached a rail after contact.';
+    msg = r.rail ? `<strong>Safety played.</strong>` + peek(` Your opponent’s best shot now: ${nb ? pct(nb.p) + ' on the ' + nb.t : 'nothing makeable'}.`) : '<strong class="b">Foul.</strong> No ball reached a rail after contact.';
   } else if (legal) {
     const nb = bestShot(state.balls, 'nine');
-    msg = r.rail ? `<strong class="w">Missed.</strong> You left your opponent ${nb ? pct(nb.p) + ' on the ' + nb.t : 'no easy shot'}.` : '<strong class="b">Foul.</strong> No ball reached a rail after contact. Opponent gets ball in hand.';
+    msg = r.rail ? `<strong class="w">Missed.</strong>` + peek(` You left your opponent ${nb ? pct(nb.p) + ' on the ' + nb.t : 'no easy shot'}.`) : '<strong class="b">Foul.</strong> No ball reached a rail after contact. Opponent gets ball in hand.';
   }
   return { msg, cont };
 }
@@ -997,22 +1061,23 @@ function judge(r, info, ownBefore) {
     cont = true;
   } else if (info.safety) {
     const nb = bestShot(state.balls, otherGroup(state.group));
-    msg = r.rail ? `<strong>Safety played.</strong> Your opponent’s best shot now: ${nb ? pct(nb.p) + ' on the ' + nb.t : 'nothing makeable'}.` : '<strong class="b">Foul.</strong> No ball reached a rail after contact.';
+    msg = r.rail ? `<strong>Safety played.</strong>` + peek(` Your opponent’s best shot now: ${nb ? pct(nb.p) + ' on the ' + nb.t : 'nothing makeable'}.`) : '<strong class="b">Foul.</strong> No ball reached a rail after contact.';
   } else {
     const nb = bestShot(state.balls, otherGroup(state.group));
-    msg = `<strong class="w">Missed.</strong> You left your opponent ${nb ? pct(nb.p) + ' on the ' + nb.t : 'no easy shot'}.`;
+    msg = `<strong class="w">Missed.</strong>` + peek(` You left your opponent ${nb ? pct(nb.p) + ' on the ' + nb.t : 'no easy shot'}.`);
   }
   finishTurn(msg, cont);
 }
 
 function finishTurn(msg, cont) {
+  if (lastShot) lastShot.result = msg;
   turnOver = !cont;
   call = { t: cont && isNine() ? lowestOn(state.balls) : null, pk: null, safety: false, aim: null };
   $('callText').textContent = callText(); $('safeBtn').setAttribute('aria-pressed', 'false');
   if (cont) {
     const nb = bestShot(state.balls, state.group);
-    const next = isNine() ? `Next up: the ${lowestOn(state.balls)}, ${nb ? pct(nb.p) + ' from here' : 'with no clean pot'}. ` :
-      ownLeft() ? `Your best look: ${nb ? pct(nb.p) + ' on the ' + nb.t : 'no clean pot'}. ` : 'Now the 8. ';
+    const next = isNine() ? `Next up: the ${lowestOn(state.balls)}` + peek(`, ${nb ? pct(nb.p) + ' from here' : 'with no clean pot'}`) + '. ' :
+      !ownLeft() ? 'Now the 8. ' : peek(`Your best look: ${nb ? pct(nb.p) + ' on the ' + nb.t : 'no clean pot'}. `);
     setStatus(msg + next + 'Call the next one.');
     startAnalysis();
   } else {
@@ -1025,7 +1090,7 @@ function finishTurn(msg, cont) {
 // ---------- Pointer ----------
 function toTable(e) { const rc = canvas.getBoundingClientRect(); return { x: (e.clientX - rc.left) / SC - RAIL, y: (e.clientY - rc.top) / SC - RAIL }; }
 canvas.addEventListener('pointerdown', e => {
-  if (busy || turnOver || !state.balls[0].on) return;
+  if (busy || turnOver || reviewing || !state.balls[0].on) return;
   drag = { start: toTable(e), moved: false };
   canvas.setPointerCapture(e.pointerId);
 });
