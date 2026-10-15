@@ -262,6 +262,20 @@ dialog.about::backdrop { background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(4
       </div>
     </section>
     <section>
+      <h3>The table and balls</h3>
+      <div class="opts-scroll"><table class="facts">
+        <thead><tr><th>Spec</th><th>Used here</th><th>Based on</th></tr></thead>
+        <tbody>
+          <tr><td>Table</td><td>9 ft, 100 × 50 in playing area</td><td>Diamond Pro-Am, from <a href="https://diamondbilliards.com/products/diamond-pro-am-pool-table" target="_blank" rel="noopener">Diamond’s spec page</a></td></tr>
+          <tr><td>Pockets</td><td>4½ in corners, 5 1/16 in sides</td><td>Diamond “Pro-Cut” sizes as reported by dealers and players on <a href="https://forums.azbilliards.com/threads/standard-pocket-sizes.304849/" target="_blank" rel="noopener">AZBilliards</a>; not published by Diamond</td></tr>
+          <tr><td>Cloth</td><td>Typical sliding and rolling friction</td><td>Diamond ships Simonis cloth; no Simonis-specific friction figures are published, so typical values are used</td></tr>
+          <tr><td>Cushions</td><td>Rebound 0.7</td><td>Diamond uses K55-profile cushions with the nose about 1 7/16 in high; the profile itself isn’t modeled</td></tr>
+          <tr><td>Balls</td><td>2¼ in, all the same weight</td><td>Aramith phenolic balls: 57.2 mm, about 169 g, sets sorted within ±1.5 g</td></tr>
+        </tbody>
+      </table></div>
+      <p>The look follows a Diamond table and Aramith balls. Size and pockets follow their specs; friction and cushion bounce use typical measured values, not ones taken on these exact products.</p>
+    </section>
+    <section>
       <h3>The physics, and where the numbers come from</h3>
       <div class="opts-scroll"><table class="facts">
         <thead><tr><th>What</th><th>Value used</th><th>Source</th></tr></thead>
@@ -303,7 +317,9 @@ const muBall = v => 9.951e-3 + 0.108 * Math.exp(-1.088 * v * 0.0254);
 // Player aim error (standard deviation of the cue ball's direction), set by the skill level.
 let AIM_SD = 0.161 * Math.PI / 180;
 function erf(x) { const t = 1 / (1 + 0.3275911 * Math.abs(x)); const y = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x); return x >= 0 ? y : -y; }
-const CZ = 3.2, SZ = 2.4; // cushion gaps at corner and side pockets
+// Diamond Pro-Am "Pro-Cut" pockets: ≈4½ in between the corner cushion points (3.2 in back from the
+// corner along each rail → 3.2·√2 ≈ 4.53 in) and ≈5 1/16 in at the sides (half-gap 2.53 in).
+const CZ = 3.2, SZ = 2.53;
 const POCKETS = [
   { name: 'top-left corner', ax: 0.8, ay: 0.8, cx: -1, cy: -1, r: 3.1, side: 0 },
   { name: 'top side', ax: W / 2, ay: -0.8, cx: W / 2, cy: -1.9, r: 2.9, side: -1 },
@@ -514,13 +530,13 @@ function shotGeom(cue, ob, pki, balls) {
   const res = { t: ob.id, pk: pki, gx, gy, d1, d2, ok: false, angle: Math.atan2(vy, vx), cut: Math.acos(Math.max(-1, Math.min(1, c))) * 180 / Math.PI, p: 0 };
   if (gx < R - 0.05 || gx > W - R + 0.05 || gy < R - 0.05 || gy > H - R + 0.05) { res.why = 'the rail blocks the contact point'; return res; }
   if (res.cut > 78) { res.why = `a ${Math.round(res.cut)}° cut is too thin`; return res; }
-  // Effective pocket size ≈ mouth − 2 in (TP 3.4): 4.5 in corners, 5 in sides. How much it shrinks with the
+  // Effective pocket size ≈ mouth − 2 in (TP 3.4): 4.5 in corners, 5 1/16 in sides (Diamond Pro-Cut). How much it shrinks with the
   // angle into the pocket is my estimate (Alciatore's TP 3.5–3.8 curves weren't available to me).
   let size;
   if (pk.side) {
     const ang = Math.acos(Math.min(1, Math.abs(uy))) * 180 / Math.PI;
     if (ang > 55) { res.why = 'too steep an angle into the side pocket'; return res; }
-    size = 3.0 * Math.cos(ang * Math.PI / 180);
+    size = 3.06 * Math.cos(ang * Math.PI / 180);
   } else {
     const cxp = Math.sign(pk.ax - W / 2), cyp = Math.sign(pk.ay - H / 2);
     const ang = Math.acos(Math.min(1, (ux * cxp + uy * cyp) / Math.SQRT2)) * 180 / Math.PI;
