@@ -336,7 +336,7 @@ function speedObj(k) {
   const mph = parseFloat(String(k).slice(1)) || 3;
   return { k, mph, L: lenFor(mph), label: mph.toFixed(1) + ' mph', f: speedF(mph), custom: true };
 }
-const SAFE_SPEEDS = [0.35, 0.7, 1.2];
+const SAFE_MPH = [1.0, 1.6, 2.4, 3.5]; // safeties are played with a center-ball hit at these speeds
 const SAFE_FRACS = [-0.85, -0.55, -0.25, 0, 0.25, 0.55, 0.85];
 
 const speedV = L => Math.sqrt(2 * DECEL * L * W);
@@ -612,23 +612,35 @@ function analyze(balls, group, opts = {}) {
     for (const f of SAFE_FRACS) {
       if (Math.abs(f * D) >= d) continue;
       const a = base + Math.asin(f * D / d);
-      for (const L of SAFE_SPEEDS) {
-        const r = simulate(balls, a, speedV(L), strikeSpin(speedV(L), 0, d), { cuePath: true });
+      for (const mph of SAFE_MPH) {
+        const r = simulate(balls, a, mph * MPH, 0, { cuePath: true });
         if (r.firstHit !== t.id || r.scratch || (!nine && r.potted.some(q => q.id === 8)) || !r.rail) continue;
         const nb = bestShot(r.balls, opp);
         const oppP = nb ? nb.p : 0;
-        const cand = { t: t.id, f, L, s0: strikeSpin(speedV(L), 0, d), angle: a, oppP, oppNext: nb, cuePath: r.cuePath, end: r.balls[0], after: r.balls };
-        if (!safety || oppP < safety.oppP - 0.02 || (Math.abs(oppP - safety.oppP) <= 0.02 && L < safety.L)) safety = cand;
+        const cand = { t: t.id, f, mph, L: lenFor(mph), s0: 0, angle: a, oppP, oppNext: nb, cuePath: r.cuePath, end: r.balls[0], after: r.balls };
+        if (!safety || oppP < safety.oppP - 0.02 || (Math.abs(oppP - safety.oppP) <= 0.02 && mph < safety.mph)) safety = cand;
       }
     }
   }
   const top = offense[0];
   let rec = 'shoot';
   const push = opts.push ? analyzePush(balls) : null;
+  // Shoot or play safe: a shot is worth make × (0.3 + 0.7 × next ball); a safety is worth about half
+  // of how much it keeps from your opponent. Good shots (60%+) are always taken.
+  const shootVal = top ? top.best.score : 0, safeVal = safety ? 0.5 * (1 - safety.oppP) : 0;
   if (!top) rec = safety ? 'safety' : 'none';
-  else if (top.best.exec < 0.45 && safety && safety.oppP < 0.4) rec = 'safety';
+  else if (safety && top.best.exec < 0.6 && safeVal > shootVal) rec = 'safety';
   if (push && (!top || top.best.exec < 0.5)) rec = 'push';
-  return { options, offense, safety, push, rec };
+  // Hooked: no pot and no direct safety. Work out a one-rail kick at the nearest two balls you may hit.
+  let kick = null;
+  if (rec === 'none') {
+    for (const t of [...targets].sort((p, q) => Math.hypot(p.x - cue.x, p.y - cue.y) - Math.hypot(q.x - cue.x, q.y - cue.y)).slice(0, 2)) {
+      const k = analyzeKick(balls, t.id);
+      if (k.best && (!kick || k.best.window > kick.best.window)) kick = Object.assign(k, { t: t.id });
+    }
+    if (kick) rec = 'kick';
+  }
+  return { options, offense, safety, push, kick, rec };
 }
 
 // ---------- Kicks: hit a blocked ball off one rail ----------
@@ -993,6 +1005,13 @@ function draw() {
             line(nb.x, nb.y, POCKETS[v.next.pk].ax, POCKETS[v.next.pk].ay, '#d9fbff', 0.12, [0.5, 0.5]);
           }
         }
+      } else if (preview.kind === 'kickplan') {
+        const b = preview.k.best, tb = state.balls[preview.k.t];
+        line(cue.x, cue.y, b.mirrorPt.x, b.mirrorPt.y, 'rgba(255,255,255,0.5)', 0.14, [0.6, 0.6]);
+        line(b.mirrorPt.x, b.mirrorPt.y, tb.x, tb.y, 'rgba(255,255,255,0.5)', 0.14, [0.6, 0.6]);
+        path(b.cuePath, '#d9fbff', 0.32);
+        ring(tb.x, tb.y, R + 0.55, '#ffffff', 0.2);
+        ring(b.contact.x, b.contact.y, 0.7, '#7dffa8', 0.22);
       } else if (preview.kind === 'push') {
         const ps = preview.s;
         path(ps.cuePath, '#d9fbff', 0.32);
@@ -1182,6 +1201,7 @@ function gradeCall() {
   if (call.safety) {
     if (analysis.rec === 'safety') return { tone: 'good', head: 'Great call', body: 'The coach also plays safe here.', good: true };
     if (analysis.rec === 'none') return { tone: 'warn', head: 'Tough spot', body: 'There’s no clean shot or safety. You’d need a kick.', good: true };
+    if (analysis.rec === 'kick') return { tone: 'good', head: 'Good call', body: `You’re hooked, so defense is right. The coach kicks at the ${analysis.kick.t} off the ${analysis.kick.best.rail.name}.`, good: true };
     if (analysis.rec === 'push') return { tone: 'warn', head: 'Defensible', body: 'A safety works, but right after the break a push out is stronger: no ball or rail needed.', good: false };
     return { tone: best.best.exec >= 0.6 ? 'bad' : 'warn', head: best.best.exec >= 0.6 ? 'Coach disagrees' : 'Defensible', body: `You have a ${pct(best.best.exec)} shot on the ${best.t} with a good leave. That’s too good to pass up.`, good: best.best.exec < 0.6 };
   }
@@ -1255,7 +1275,7 @@ function renderCoach() {
   } else if (analysis.rec === 'safety') {
     const s = analysis.safety;
     html += `<p class="pick">Play safe off the ${s.t}</p>`;
-    html += `<div class="chips"><span class="chip">${thickness(s.f)} hit</span><span class="chip">${s.L < 0.5 ? 'Soft' : s.L < 1 ? 'Medium-soft' : 'Medium'} speed</span><span class="chip">opponent ${pct(s.oppP)}</span></div>`;
+    html += `<div class="chips"><span class="chip">${thickness(s.f)} hit</span><span class="chip">${s.mph.toFixed(1)} mph, center ball</span><span class="chip">opponent ${pct(s.oppP)}</span></div>`;
     const r = [];
     r.push(top ? `Your best pot is the ${top.t} at only <strong>${pct(top.best.exec)}</strong>. A miss would likely hand over the table.` : 'You have no makeable pot with a legal hit.');
     r.push(`Hitting the ${s.t} ${thickness(s.f)} leaves your opponent <strong>${pct(s.oppP)}</strong> at best on their next shot.`);
@@ -1271,6 +1291,11 @@ function renderCoach() {
     r.push(`This push leaves about a <strong>${pct(ps.p)}</strong> shot${ps.next ? ' on the ' + ps.next.t : ''}. Close to a coin flip, so whichever way they choose, they don’t gain much.`);
     r.push('A scratch on a push is still a foul, and if the 9 drops it comes back up.');
     html += `<ul class="reasons">${r.map(x => `<li>${x}</li>`).join('')}</ul>`;
+  } else if (analysis.rec === 'kick') {
+    const k = analysis.kick, b = k.best;
+    html += `<p class="pick">Kick at the ${k.t} off the ${b.rail.name}</p>`;
+    html += `<div class="chips"><span class="chip">aim at diamond ${dia(diamondOf(b.rail, b.contact))}</span><span class="chip">medium speed</span><span class="chip">±${(b.window / 2).toFixed(1)}° room</span></div>`;
+    html += `<ul class="reasons"><li>You’re hooked: every ball you may hit is blocked, so you can’t pot or play a direct safety.</li><li>Mirror system: the ${k.t}’s reflection across the ${b.rail.name} crosses the rail at diamond ${dia(diamondOf(b.rail, b.mirrorPt))}. Allowing for the cushion, aim at diamond <strong>${dia(diamondOf(b.rail, b.contact))}</strong>.</li><li>Hit the ${k.t} first and get a ball to a rail afterward, or it’s a foul.</li></ul>`;
   } else {
     html += '<p class="pick">No clean option</p><ul class="reasons"><li>Every pot is blocked and no direct safety works. This calls for a kick shot off a rail.</li></ul>';
   }
@@ -1419,6 +1444,7 @@ function coachParams(rec) {
   if (a.rec === 'shoot') { const o = a.offense[0]; return { angle: o.best.angle, v: speedV(speedObj(o.best.speed).L), s: o.best.s0 }; }
   if (a.rec === 'safety') return { angle: a.safety.angle, v: speedV(a.safety.L), s: a.safety.s0 };
   if (a.rec === 'push' && a.push) return { angle: a.push.angle, v: speedV(a.push.L), s: 0 };
+  if (a.rec === 'kick' && a.kick) return { angle: a.kick.best.angle, v: KICK_V, s: 0 };
   return null;
 }
 function replayButtons(rec, withCoach) {
@@ -1717,6 +1743,7 @@ function defaultPreview() {
   if (analysis.rec === 'shoot') return { kind: 'shot', o: analysis.offense[0], v: analysis.offense[0].best };
   if (analysis.rec === 'safety') return { kind: 'safety', s: analysis.safety };
   if (analysis.rec === 'push') return { kind: 'push', s: analysis.push };
+  if (analysis.rec === 'kick') return { kind: 'kickplan', k: analysis.kick };
   return null;
 }
 
@@ -1852,6 +1879,9 @@ function playCoach() {
     spin = v.spin; speed = v.speed; buildSegs();
     call = { t: o.t, pk: o.pk, safety: false, aim: null }; callChanged();
     run(v.angle, speedV(speedObj(v.speed).L), v.s0, { called: { t: o.t, pk: o.pk }, coach: true });
+  } else if (analysis.rec === 'kick' && analysis.kick) {
+    call = { t: null, pk: null, safety: true, aim: analysis.kick.best.angle }; callChanged();
+    run(analysis.kick.best.angle, KICK_V, 0, { safety: true, coach: true });
   } else if (analysis.rec === 'push' && analysis.push) {
     call = { t: null, pk: null, safety: false, aim: null, push: true }; callChanged();
     run(analysis.push.angle, speedV(analysis.push.L), 0, { push: true, coach: true });
