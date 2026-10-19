@@ -179,6 +179,13 @@ dialog.about::backdrop { background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(4
         <option value="advanced">Advanced</option>
       </select>
     </label>
+    <label class="skill" for="nineSel" id="nineLbl" hidden>Rack
+      <select id="nineSel">
+        <option value="mixed" selected>Mixed</option>
+        <option value="break">After the break</option>
+        <option value="mid">Mid-rack</option>
+      </select>
+    </label>
     <span class="spacer"></span>
     <div class="top-actions">
       <button id="newBtn" type="button">New rack</button>
@@ -794,11 +801,13 @@ function genKick() {
   return genKick();
 }
 
-function genRack(mode) {
+function genRack(mode, afterBreak) {
   const balls = Array.from({ length: 16 }, (_, id) => ({ id, x: 0, y: 0, on: false }));
   let ids;
   if (mode === 'nine') {
-    ids = shuffle([...shuffle([1, 2, 3, 4, 5, 6, 7, 8]).slice(0, 3 + Math.floor(Math.random() * 4)), 9]).concat([0]);
+    // after the break most balls are still up (7–9 on the table); mid-rack has fewer (4–7)
+    const n = afterBreak ? 6 + Math.floor(Math.random() * 3) : 3 + Math.floor(Math.random() * 4);
+    ids = shuffle([...shuffle([1, 2, 3, 4, 5, 6, 7, 8]).slice(0, n), 9]).concat([0]);
   } else {
     const own = shuffle([1, 2, 3, 4, 5, 6, 7]).slice(0, 2 + Math.floor(Math.random() * 5));
     const opp = shuffle([9, 10, 11, 12, 13, 14, 15]).slice(0, 2 + Math.floor(Math.random() * 5));
@@ -1174,6 +1183,9 @@ function updateButtons() {
   $('shootBtn').disabled = busy || turnOver || reviewing;
   $('safeBtn').disabled = busy || turnOver || reviewing;
   $('pushBtn').hidden = !(isNine() && pushOk);
+  $('callHead').textContent = isKick() ? 'Kick practice · hit the 1 off a rail'
+    : isNine() ? (pushOk ? '9-ball · shot after the break · push out allowed' : state.afterBreak && rackShots.length ? '9-ball · lowest ball first' : '9-ball · mid-rack · no push out')
+    : 'Your turn · you are solids (1–7)';
   $('safeBtn').hidden = isKick();
   $('spinRow').hidden = isKick();
   if (isKick()) $('allOptsLbl').hidden = true;
@@ -1197,7 +1209,7 @@ function defaultStatus() {
   if (isNine()) {
     const lo = lowestOn(state.balls);
     return (lo === 9 ? 'Only the 9 is left. <strong>Pick a pocket for the 9.</strong>' : `The lowest ball is the <strong>${lo}</strong>, so you must hit it first. Pick a pocket for it. Making the 9 on any legal shot wins.`) +
-      (pushOk ? ' It’s the shot after the break, so you can also <strong>push out</strong>.' : '');
+      (pushOk ? ' This is the shot right after the break, so you can also <strong>push out</strong>.' : !rackShots.length && !state.afterBreak ? ' This is a mid-rack position, so <strong>no push out</strong>: pot it, play safe, or kick.' : '');
   }
   const n = ownLeft();
   return n ? `You have <strong>${n}</strong> solid${n > 1 ? 's' : ''} left. Pick a ball, then a pocket.` : 'Your group is clear. <strong>Call the 8-ball.</strong>';
@@ -1787,7 +1799,7 @@ function resetCall() {
 let mode = 'eight';
 function buildModeSeg() {
   $('modeSeg').innerHTML = [['eight', '8-ball'], ['nine', '9-ball'], ['kick', 'Kicks']].map(([k, l]) => `<button type="button" data-k="${k}" aria-pressed="${k === mode}">${l}</button>`).join('');
-  $('callHead').textContent = mode === 'kick' ? 'Kick practice · hit the 1 off a rail' : mode === 'nine' ? 'Your turn · 9-ball · lowest ball first' : 'Your turn · you are solids (1–7)';
+  $('nineLbl').hidden = mode !== 'nine';
   updateButtons();
 }
 $('modeSeg').addEventListener('click', e => {
@@ -1796,11 +1808,21 @@ $('modeSeg').addEventListener('click', e => {
   mode = b.dataset.k; buildModeSeg(); newRack();
 });
 
+let nineStart = 'mixed';
+try { const v = localStorage.getItem('shotcaller.nineStart'); if (['mixed', 'break', 'mid'].includes(v)) nineStart = v; } catch (e) {}
+$('nineSel').value = nineStart;
+$('nineSel').addEventListener('change', e => {
+  nineStart = e.target.value;
+  try { localStorage.setItem('shotcaller.nineStart', nineStart); } catch (err) {}
+  if (!busy && !reviewing && mode === 'nine') newRack();
+});
 function newRack() {
-  state = { balls: mode === 'kick' ? genKick() : genRack(mode), group: mode === 'nine' ? 'nine' : mode === 'kick' ? 'kick' : 'solids' };
+  // 9-ball: the table is either the shot right after the break (push out allowed) or a mid-rack position
+  const afterBreak = mode === 'nine' && (nineStart === 'break' || (nineStart === 'mixed' && Math.random() < 0.35));
+  state = { balls: mode === 'kick' ? genKick() : genRack(mode, afterBreak), group: mode === 'nine' ? 'nine' : mode === 'kick' ? 'kick' : 'solids', afterBreak };
   lastKick = null;
   rackShots = []; tip = null; syncLine(); runView = false; turnOver = false;
-  pushOk = mode === 'nine';
+  pushOk = afterBreak;
   $('coachDot').hidden = true;
   resetCall(); setStatus(defaultStatus()); startAnalysis(); draw();
 }
