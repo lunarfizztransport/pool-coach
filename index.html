@@ -138,6 +138,8 @@ table.opts tr.clickable:hover td, table.opts tr.sel td { background: var(--raise
 .hchip .mk { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
 .hchip.good .mk { background: var(--good); } .hchip.warn .mk { background: var(--warn); } .hchip.bad .mk { background: var(--bad); }
 .hchip.off { opacity: 0.45; text-decoration: line-through; }
+.hchip.opp { background: transparent; box-shadow: inset 0 0 0 1px var(--raise-2); color: var(--muted); }
+.hchip.opp .mk { border-radius: 2px; }
 .hchip.sel, .hchip.sel:hover:not(:disabled) { background: var(--fg); color: #000; opacity: 1; }
 .hview { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; border-top: 1px solid var(--line); padding-top: 8px; }
 .hview .status { flex: 1 1 220px; }
@@ -174,6 +176,14 @@ dialog.about::backdrop { background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(4
     <div class="seg" id="modeSeg" role="group" aria-label="Game"></div>
     <label class="skill" for="skillSel">Skill
       <select id="skillSel">
+        <option value="beginner">Beginner</option>
+        <option value="intermediate" selected>Intermediate</option>
+        <option value="advanced">Advanced</option>
+      </select>
+    </label>
+    <label class="skill" for="oppSel" id="oppLbl">Opponent
+      <select id="oppSel">
+        <option value="off">Off</option>
         <option value="beginner">Beginner</option>
         <option value="intermediate" selected>Intermediate</option>
         <option value="advanced">Advanced</option>
@@ -222,7 +232,7 @@ dialog.about::backdrop { background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(4
         <p class="eyebrow" id="callHead">Your turn · you are solids (1–7)</p>
         <div class="call-box">
           <span><span class="muted">Your call: </span><span id="callText">nothing yet</span></span>
-          <span class="call-btns"><button id="pushBtn" type="button" aria-pressed="false" hidden>Push out</button><button id="safeBtn" type="button" aria-pressed="false">Play safe</button></span>
+          <span class="call-btns"><button id="bihBtn" type="button" hidden>Place where the coach would</button><button id="pushBtn" type="button" aria-pressed="false" hidden>Push out</button><button id="safeBtn" type="button" aria-pressed="false">Play safe</button></span>
         </div>
         <div class="row" id="spinRow">
           <span class="eyebrow">Spin at contact</span>
@@ -1182,7 +1192,9 @@ function updateButtons() {
   $('askBtn').disabled = busy || turnOver || analyzing || revealed || reviewing;
   $('shootBtn').disabled = busy || turnOver || reviewing;
   $('safeBtn').disabled = busy || turnOver || reviewing;
-  $('pushBtn').hidden = !(isNine() && pushOk);
+  $('pushBtn').hidden = !(isNine() && pushOk) || ballInHand;
+  $('bihBtn').hidden = !ballInHand || reviewing;
+  $('oppLbl').hidden = isKick();
   $('callHead').textContent = isKick() ? 'Kick practice · hit the 1 off a rail'
     : isNine() ? (pushOk ? '9-ball · shot after the break · push out allowed' : state.afterBreak && rackShots.length ? '9-ball · lowest ball first' : '9-ball · mid-rack · no push out')
     : 'Your turn · you are solids (1–7)';
@@ -1286,13 +1298,13 @@ function renderCoach() {
   if (runView && !reviewing) { el.innerHTML = renderRun(); return; }
   const lastCard = lastShot ? `<div class="yours"><span class="eyebrow">Last shot · shot ${lastShot.n}</span><p>${callText(lastShot.call)} · ${outcomeText(lastShot) || '…'}</p></div>` : '';
   const askHere = !turnOver && !busy && !analyzing && analysis ? '<div class="actions"><button type="button" id="askHere" class="primary">Ask about this position</button></div>' : '';
-  const reviewBtn = (lastShot && !busy ? `<div class="actions"><button type="button" id="reviewBtn">Review and ask about shot ${lastShot.n}</button>${inning.length > 1 ? `<button type="button" id="runBtn">Review my whole run (${inning.length} shots)</button>` : ''}</div>` : '');
+  const reviewBtn = (lastShot && !busy ? `<div class="actions"><button type="button" id="reviewBtn">Review and ask about shot ${lastShot.n}</button>${myLine().length > 1 ? `<button type="button" id="runBtn">Review my whole run (${myLine().length} shots)</button>` : ''}</div>` : '');
   if (analyzing) { el.innerHTML = coachHead('Coach') + lastCard + reviewBtn + '<p class="thinking">Simulating every option…</p>'; return; }
   if (!revealed || !analysis) {
     el.innerHTML = coachHead('Coach') + (turnOver ? '<p class="thinking">Turn over. Undo the shot, go back to any shot in Rack history, or rack a new table.</p>' : askHere || '<p class="thinking">Make your call on the Your call tab, then ask the coach.</p>') + lastCard + reviewBtn;
     return;
   }
-  let html = coachHead(reviewing && reviewRec ? `Coach · shot ${reviewRec.n}` : 'Coach');
+  let html = coachHead(reviewing && reviewRec ? `Coach · ${reviewRec.who === 'opp' ? 'opponent’s ' : ''}shot ${reviewRec.n}` : 'Coach');
   if (graded && graded.head) html += `<div><span class="pill ${graded.tone === 'good' ? 'good' : graded.tone === 'warn' ? 'warn' : graded.tone === 'bad' ? 'bad' : ''}">${graded.head}</span></div>`;
   const top = analysis.offense[0];
   if (analysis.rec === 'shoot') {
@@ -1327,7 +1339,7 @@ function renderCoach() {
   } else {
     html += '<p class="pick">No clean option</p><ul class="reasons"><li>Every pot is blocked and no direct safety works. This calls for a kick shot off a rail.</li></ul>';
   }
-  if (graded && graded.body) html += `<div class="yours"><span class="eyebrow">Your call: ${callText()}</span><p>${graded.body}</p>${reviewing && reviewRec && reviewRec.result ? `<p class="result muted">What happened: ${reviewRec.result}</p>` : ''}</div>`;
+  if (graded && graded.body) html += `<div class="yours"><span class="eyebrow">${reviewing && reviewRec && reviewRec.who === 'opp' ? 'Their call' : 'Your call'}: ${callText()}</span><p>${graded.body}</p>${reviewing && reviewRec && reviewRec.result ? `<p class="result muted">What happened: ${reviewRec.result}</p>` : ''}</div>`;
   if (reviewing && reviewRec) html += askSection(reviewRec);
   // options table
   const rows = analysis.offense.slice(0, 7);
@@ -1364,7 +1376,7 @@ $('coach').addEventListener('click', e => {
   else if (e.target.closest('#reviewBtn')) enterReview(lastShot, false);
   else if (e.target.closest('#runBtn')) openRun();
   else if (e.target.closest('#runBack')) { runView = false; renderCoach(); showTab('call'); }
-  else if (e.target.closest('tr[data-shot]')) enterReview(inning[+e.target.closest('tr[data-shot]').dataset.shot], true);
+  else if (e.target.closest('tr[data-shot]')) enterReview(myLine()[+e.target.closest('tr[data-shot]').dataset.shot], true);
   else if (e.target.closest('#backBtn')) exitReview();
   else if (e.target.closest('#coachShot')) playCoach();
   else if (e.target.closest('#askHere')) $('askBtn').click();
@@ -1428,7 +1440,7 @@ function renderHistory() {
   box.hidden = !rackShots.length;
   if (!rackShots.length) return;
   const onLine = new Set(inning), dis = busy ? ' disabled' : '';
-  $('hchips').innerHTML = rackShots.map((r, i) => `<button type="button" class="hchip ${recTone(r)}${onLine.has(r) ? '' : ' off'}${reviewing && reviewRec === r ? ' sel' : ''}" data-h="${i}" title="Shot ${r.n}: ${callText(r.call)}. ${outcomeText(r)}"${dis}><span class="mk"></span>${r.n}</button>`).join('')
+  $('hchips').innerHTML = rackShots.map((r, i) => `<button type="button" class="hchip ${recTone(r)}${r.who === 'opp' ? ' opp' : ''}${onLine.has(r) ? '' : ' off'}${reviewing && reviewRec === r ? ' sel' : ''}" data-h="${i}" title="${r.who === 'opp' ? 'Opponent’s shot' : 'Shot'} ${r.n}: ${callText(r.call)}. ${outcomeText(r)}"${dis}><span class="mk"></span>${r.who === 'opp' ? 'O' : ''}${r.n}</button>`).join('')
     + `<button type="button" class="hchip${reviewing ? '' : ' sel'}" data-h="now"${dis}>Now</button>`;
   const v = $('hview');
   if (!reviewing || !reviewRec) { v.hidden = true; return; }
@@ -1438,7 +1450,7 @@ function renderHistory() {
     <div class="row-btns">
       <button type="button" data-hact="prev" aria-label="Previous shot"${i <= 0 || busy ? ' disabled' : ''}>◀</button>
       <button type="button" data-hact="next" aria-label="Next shot"${i >= rackShots.length - 1 || busy ? ' disabled' : ''}>▶</button>
-      <button type="button" data-hact="mine"${dis}>Replay my shot</button>
+      <button type="button" data-hact="mine"${dis}>${r.who === 'opp' ? 'Replay their shot' : 'Replay my shot'}</button>
       ${coachOff ? '' : `<button type="button" data-hact="coach"${dis}>Watch the coach’s shot</button>`}
       <button type="button" data-hact="from"${dis}>Play from here</button>
       <button type="button" data-hact="now" class="primary"${dis}>Back to now</button>
@@ -1494,7 +1506,8 @@ function replay(which) {
   if (busy || !rec || !rec.shot) return;
   const p = which === 'mine' ? rec.shot : coachParams(rec);
   if (!p) return setStatus('The coach had no shot to play from that position.');
-  playReplay(rec, p, which === 'mine' ? `Replay · shot ${rec.n}` : 'Coach’s shot', which);
+  const theirs = rec.who === 'opp' && which === 'mine';
+  playReplay(rec, p, which === 'mine' ? `Replay · ${theirs ? 'opponent’s ' : ''}shot ${rec.n}` : 'Coach’s shot', theirs ? 'Their shot' : which);
 }
 function playReplay(rec, p, label, which) {
   if (busy) return;
@@ -1724,8 +1737,9 @@ function shotKind(rec) {
   if (top && c.t === top.t && c.pk === top.pk) return rec.spin === top.best.spin && rec.speed === top.best.speed ? 'match' : 'cueBall';
   return 'choice';
 }
+const myLine = () => inning.filter(r => r.who !== 'opp');
 function openRun() {
-  if (busy || inning.length < 2) return;
+  if (busy || myLine().length < 2) return;
   runView = true;
   if (inning.some(r => !r.analysis)) {
     $('coach').innerHTML = coachHead('Coach · your run') + `<p class="thinking">Reviewing ${inning.length} shots…</p>`;
@@ -1733,6 +1747,7 @@ function openRun() {
   } else { renderCoach(); updateButtons(); }
 }
 function renderRun() {
+  const inning = myLine();
   const rows = inning.map((rec, i) => ({ rec, i, g: gradeShot(rec), kind: shotKind(rec) }));
   const graded = rows.filter(r => r.g && r.g.tone !== 'muted');
   const matched = rows.filter(r => r.kind === 'match').length;
@@ -1821,7 +1836,7 @@ function newRack() {
   const afterBreak = mode === 'nine' && (nineStart === 'break' || (nineStart === 'mixed' && Math.random() < 0.35));
   state = { balls: mode === 'kick' ? genKick() : genRack(mode, afterBreak), group: mode === 'nine' ? 'nine' : mode === 'kick' ? 'kick' : 'solids', afterBreak };
   lastKick = null;
-  rackShots = []; tip = null; syncLine(); runView = false; turnOver = false;
+  rackShots = []; tip = null; syncLine(); runView = false; turnOver = false; gameOver = false; ballInHand = false;
   pushOk = afterBreak;
   $('coachDot').hidden = true;
   resetCall(); setStatus(defaultStatus()); startAnalysis(); draw();
@@ -1853,7 +1868,8 @@ $('safeBtn').addEventListener('click', () => {
   setStatus(call.safety ? 'Safety called. Drag on the table to aim it yourself, or shoot to play the coach’s safety.' : defaultStatus());
 });
 $('newBtn').addEventListener('click', newRack);
-$('retryBtn').addEventListener('click', () => playFrom(tip));
+// Undo steps back to before your last shot, skipping over the opponent's turn
+$('retryBtn').addEventListener('click', () => { const mine = myLine(); playFrom(mine.length ? mine[mine.length - 1] : tip); });
 // Go back to the position before a shot and keep playing from there. Later shots stay in the
 // history (faded) so nothing in the rack is lost.
 function playFrom(rec) {
@@ -1861,7 +1877,8 @@ function playFrom(rec) {
   if (reviewing) exitReview(true);
   tip = rec.parent; syncLine();
   state.balls = rec.balls.map(b => ({ ...b }));
-  pushOk = !!rec.pushOk; turnOver = false; runView = false; lastKick = null;
+  pushOk = !!rec.pushOk; turnOver = false; runView = false; lastKick = null; gameOver = false; ballInHand = false;
+  if (rec.who === 'opp') { resetCall(); showTab('call'); draw(); opponentTurn(rec.bih, [], rec); return; }
   resetCall();
   setStatus(`Back to the position before shot ${rec.n}. ` + defaultStatus());
   if (rec.analysis) { analysis = rec.analysis; analyzing = false; revealed = false; graded = false; preview = null; renderCoach(); updateButtons(); }
@@ -1969,7 +1986,7 @@ function judgeNine(r, info, lowBefore) {
     if (r.scratch) return { msg: '<strong class="b">Scratch on the push.</strong> That’s still a foul. Opponent gets ball in hand.', cont: false };
     const nb = bestShot(state.balls, 'nine'), p = nb ? nb.p : 0;
     const spot = pot9 ? ' The 9 comes back up on the foot spot.' : '';
-    if (p >= 0.5) return { msg: '<strong>Push played.</strong> Your opponent takes the shot' + peek(` (${pct(p)} on the ${nb.t})`) + '.' + spot, cont: false };
+    if (oppTakesPush(p)) return { msg: '<strong>Push played.</strong> Your opponent takes the shot' + peek(` (${pct(p)} on the ${nb.t})`) + '.' + spot, cont: false };
     return { msg: '<strong>Push played.</strong> Your opponent passes it back' + peek(` (only ${pct(p)} from here)`) + ', so you have to shoot.' + spot + ' ', cont: true };
   }
   const potted = r.potted.filter(q => q.id !== 0);
@@ -2053,15 +2070,155 @@ function finishTurn(msg, cont) {
     setStatus(msg + next + 'Call the next one.');
     startAnalysis();
   } else {
-    setStatus(msg + ' <span class="muted">Retry the shot or rack a new table.</span>');
-    revealed = false; analysis = null; renderCoach();
+    const over = /won the rack|loses the rack/.test(msg);
+    revealed = false; analysis = null;
+    if (over) { gameOver = true; setStatus(msg + ' <span class="muted">Rack a new table to play again.</span>'); renderCoach(); }
+    else if (oppOn()) {
+      setStatus(msg + ' <span class="muted">Opponent’s turn…</span>'); renderCoach();
+      const foul = /Foul|Scratch/.test(msg);
+      setTimeout(() => opponentTurn(foul, []), 700);
+    } else { setStatus(msg + ' <span class="muted">Undo the shot or rack a new table.</span>'); renderCoach(); }
   }
   updateButtons(); draw();
+}
+
+// ---------- Opponent ----------
+// Their level sets how they choose (beginner: easiest pot; intermediate: position, with misjudgment;
+// advanced: the coach's choice) and how steady their stroke is (aim error from the skill table, plus speed error).
+let oppLevel = 'intermediate', gameOver = false, ballInHand = false;
+try { const v = localStorage.getItem('shotcaller.opp'); if (['off', 'beginner', 'intermediate', 'advanced'].includes(v)) oppLevel = v; } catch (e) {}
+$('oppSel').value = oppLevel;
+$('oppSel').addEventListener('change', e => { oppLevel = e.target.value; try { localStorage.setItem('shotcaller.opp', oppLevel); } catch (err) {} });
+const oppOn = () => oppLevel !== 'off' && !isKick();
+const OPP_SPEED_SD = { beginner: 0.15, intermediate: 0.08, advanced: 0.04 };
+const oppName = () => oppLevel[0].toUpperCase() + oppLevel.slice(1);
+const oppGrp = () => isNine() ? 'nine' : otherGroup(state.group);
+function gauss() { let u = 0, v = 0; while (!u) u = Math.random(); while (!v) v = Math.random(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); }
+function oppTakesPush(p) {
+  if (!oppOn()) return p >= 0.5;
+  return oppLevel === 'beginner' ? p >= 0.2 : oppLevel === 'intermediate' ? p + 0.1 * gauss() >= 0.45 : p >= 0.5;
+}
+// Ball in hand: try spots across the table and keep the ones with the best pot (beginners pick loosely)
+function bestSpots(balls, group) {
+  const spots = [];
+  for (let x = 6; x <= W - 6; x += 7) for (let y = 5; y <= H - 5; y += 6) {
+    if (balls.some(b => b.on && b.id !== 0 && Math.hypot(b.x - x, b.y - y) < D + 0.3)) continue;
+    const trial = balls.map(b => b.id === 0 ? { ...b, x, y, on: true } : b);
+    const nb = bestShot(trial, group);
+    spots.push({ x, y, p: nb ? nb.p : 0 });
+  }
+  return spots.sort((a, b) => b.p - a.p);
+}
+function placeCueAt(x, y) { Object.assign(state.balls[0], { x, y, on: true }); }
+function placeMyCue(pt) {
+  const x = Math.min(Math.max(pt.x, R + 0.2), W - R - 0.2), y = Math.min(Math.max(pt.y, R + 0.2), H - R - 0.2);
+  if (state.balls.some(b => b.on && b.id !== 0 && Math.hypot(b.x - x, b.y - y) < D + 0.05)) return setStatus('That spot touches another ball. Click somewhere clear.');
+  placeCueAt(x, y); ballInHand = false;
+  setStatus('Cue ball placed. ' + defaultStatus()); resetCall(); startAnalysis(); updateButtons(); draw();
+}
+$('bihBtn').addEventListener('click', () => {
+  if (!ballInHand || busy) return;
+  const s0 = bestSpots(state.balls, state.group)[0];
+  if (s0) placeMyCue(s0);
+});
+function oppPlan(group) {
+  const keep = AIM_SD; AIM_SD = SKILL_SD[oppLevel] * Math.PI / 180;
+  const a = analyze(state.balls, group, {});
+  AIM_SD = keep;
+  const asShot = (o, v) => ({ kind: 'shot', angle: v.angle, v: speedV(speedObj(v.speed).L), s: v.s0, call: { t: o.t, pk: o.pk, safety: false, aim: null }, spin: v.spin, speed: v.speed, desc: `the ${o.t} in the ${pocketName(o.pk)}` });
+  const asSafe = sf => ({ kind: 'safety', angle: sf.angle, v: sf.mph * MPH, s: 0, call: { t: null, pk: null, safety: true, aim: null }, spin: 'stun', speed: 'medium', desc: `a safety off the ${sf.t}` });
+  const asKick = k => ({ kind: 'kick', angle: k.best.angle, v: KICK_V, s: 0, call: { t: null, pk: null, safety: true, aim: k.best.angle }, spin: 'stun', speed: 'medium', desc: `a kick at the ${k.t}` });
+  let plan = null;
+  if (oppLevel === 'advanced') {
+    if (a.rec === 'shoot') plan = asShot(a.offense[0], a.offense[0].best);
+    else if (a.rec === 'safety') plan = asSafe(a.safety);
+    else if (a.rec === 'kick') plan = asKick(a.kick);
+  } else if (oppLevel === 'intermediate') {
+    const pick = a.offense.map(o => ({ o, sc: o.best.score * (1 + 0.3 * gauss()) })).sort((x, y) => y.sc - x.sc)[0];
+    if (pick && !(a.safety && pick.o.best.exec < 0.35 && 0.5 * (1 - a.safety.oppP) > pick.o.best.score)) plan = asShot(pick.o, pick.o.best);
+    else if (a.safety) plan = asSafe(a.safety);
+    else if (a.kick) plan = asKick(a.kick);
+  } else {
+    // beginner: the easiest-looking pot, played at medium with a center hit if that works
+    const easy = [...a.offense].sort((x, y) => y.p - x.p)[0];
+    if (easy) plan = asShot(easy, easy.variants['stun|medium'] && easy.variants['stun|medium'].made ? easy.variants['stun|medium'] : easy.best);
+    else if (a.safety) plan = asSafe(a.safety);
+  }
+  if (!plan) { // nothing found: just hit the nearest legal ball full
+    const cue = state.balls[0], t = targetsFor(state.balls, group).sort((p, q) => Math.hypot(p.x - cue.x, p.y - cue.y) - Math.hypot(q.x - cue.x, q.y - cue.y))[0];
+    if (!t) return null;
+    plan = { kind: 'safety', angle: Math.atan2(t.y - cue.y, t.x - cue.x), v: 3 * MPH, s: 0, call: { t: null, pk: null, safety: true, aim: null }, spin: 'stun', speed: 'medium', desc: `a hit on the ${t.id}` };
+  }
+  plan.analysis = a;
+  return plan;
+}
+function judgeOpp(r, plan, group, before) {
+  const pots = r.potted.filter(q => q.id !== 0).map(q => q.id);
+  if (isNine()) {
+    const lo = lowestOn(before), legal = r.firstHit === lo && !r.scratch, pot9 = pots.includes(9);
+    if (pot9 && legal) return { over: true, short: 'made the 9 and won the rack', head: 'Opponent wins' };
+    if (pot9) respot9();
+    if (r.firstHit < 0) return { foul: true, short: 'missed every ball (foul)' };
+    if (r.firstHit !== lo) return { foul: true, short: `hit the ${r.firstHit} before the ${lo} (foul)` };
+    if (r.scratch) return { foul: true, short: 'scratched' };
+    if (pots.length) return { cont: true, short: `made the ${pots.join(' and ')}` };
+    if (!r.rail) return { foul: true, short: 'didn’t get a ball to a rail (foul)' };
+    return { short: plan.kind === 'shot' ? `missed ${plan.desc}` : `played ${plan.desc}` };
+  }
+  const ids = groupIds(group), ownBefore = ids.filter(id => before[id].on).length;
+  const legalFirst = ownBefore === 0 ? r.firstHit === 8 : ids.includes(r.firstHit);
+  if (pots.includes(8)) return ownBefore === 0 && legalFirst && !r.scratch ? { over: true, short: 'made the 8 and won the rack', head: 'Opponent wins' } : { over: true, youWin: true, short: 'sank the 8 early. You win the rack' };
+  if (r.firstHit < 0) return { foul: true, short: 'missed every ball (foul)' };
+  if (!legalFirst) return { foul: true, short: `hit the ${r.firstHit} first (foul)` };
+  if (r.scratch) return { foul: true, short: 'scratched' };
+  const own = pots.filter(id => ids.includes(id));
+  if (own.length) return { cont: true, short: `made the ${own.join(' and ')}` };
+  if (!r.rail && !pots.length) return { foul: true, short: 'didn’t get a ball to a rail (foul)' };
+  return { short: plan.kind === 'shot' ? `missed ${plan.desc}` : `played ${plan.desc}` };
+}
+function opponentTurn(bih, chain, from) {
+  if (gameOver || !oppOn()) return;
+  busy = true; updateButtons(); renderCoach();
+  setStatus(`<strong>Opponent (${oppName()})</strong> is ${bih || !state.balls[0].on ? 'placing the cue ball' : 'lining up a shot'}…`);
+  setTimeout(() => {
+    const group = oppGrp();
+    if (bih || !state.balls[0].on) { const sp = bestSpots(state.balls, group); const k = oppLevel === 'advanced' ? 0 : Math.floor(Math.random() * Math.min(sp.length, oppLevel === 'intermediate' ? 3 : 8)); if (sp[k]) placeCueAt(sp[k].x, sp[k].y); }
+    const plan = oppPlan(group);
+    if (!plan) { busy = false; turnOver = false; setStatus('Opponent has no legal shot. Your turn.'); startAnalysis(); updateButtons(); return; }
+    // the stroke: aim and speed errors for their level
+    const angle = plan.angle + gauss() * SKILL_SD[oppLevel] * Math.PI / 180, v = plan.v * (1 + gauss() * OPP_SPEED_SD[oppLevel]);
+    const before = state.balls.map(b => ({ ...b }));
+    const rec = { balls: before.map(b => ({ ...b })), group, analysis: plan.analysis, call: plan.call, spin: plan.spin, speed: plan.speed, counted: true, result: '', cont: false, pushOk: false,
+      shot: { angle, v, s: plan.s }, parent: tip, n: rackShots.length + 1, who: 'opp', bih: !!bih };
+    rackShots.push(rec); tip = rec; syncLine();
+    const r = simulate(state.balls, angle, v, plan.s, { frames: true });
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    anim = { frames: r.frames, i: 0, label: `Opponent · ${plan.kind === 'shot' ? plan.desc : plan.desc}` };
+    const step = () => {
+      anim.i += reduce ? 6 : 1;
+      if (anim.i < anim.frames.length - 1) { draw(); requestAnimationFrame(step); return; }
+      anim = null; state.balls = r.balls.map(b => ({ ...b }));
+      const res = judgeOpp(r, plan, group, before);
+      rec.result = `<strong>Opponent ${res.short}.</strong>`; rec.cont = !!res.cont;
+      chain.push(res.foul ? `tried ${plan.desc} but ${res.short}` : res.short);
+      draw();
+      if (res.over) { busy = false; gameOver = true; turnOver = true; setStatus(`<strong>Opponent:</strong> ${chain.join(', then ')}.` + (res.youWin ? ' <strong class="g">You win.</strong>' : ' <strong class="b">Opponent wins the rack.</strong>') + ' <span class="muted">Rack a new table, or undo to try your shot again.</span>'); renderCoach(); updateButtons(); return; }
+      if (res.cont) { setTimeout(() => opponentTurn(false, chain), 500); return; }
+      busy = false; turnOver = false;
+      if (res.foul) { ballInHand = true; if (!state.balls[0].on) placeCueAt(W / 4, H / 2); }
+      resetCall();
+      setStatus(`<strong>Opponent:</strong> ${chain.join(', then ')}. ` + (ballInHand ? '<strong>Ball in hand:</strong> click the table to place the cue ball, or let the coach place it.' : 'Your turn. ' + defaultStatus()));
+      if (!coachOff && tab !== 'coach') $('coachDot').hidden = false;
+      startAnalysis(); updateButtons(); draw();
+    };
+    requestAnimationFrame(step);
+  }, 450);
 }
 
 // ---------- Pointer ----------
 function toTable(e) { const rc = canvas.getBoundingClientRect(); return { x: (e.clientX - rc.left) / SC - RAIL, y: (e.clientY - rc.top) / SC - RAIL }; }
 canvas.addEventListener('pointerdown', e => {
+  if (ballInHand && !busy && !reviewing) { placeMyCue(toTable(e)); return; }
   if (busy || turnOver || reviewing || !state.balls[0].on) return;
   drag = { start: toTable(e), moved: false };
   canvas.setPointerCapture(e.pointerId);
