@@ -166,15 +166,72 @@ dialog.about::backdrop { background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(4
 .facts th, .facts td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
 .facts th { color: var(--muted); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
 @media (max-width: 520px) { .panel { padding: 14px; } .topbar { padding-inline: 12px; } .stage { padding-inline: 12px; } }
+button, select, input { touch-action: manipulation; }
+.top-settings { display: contents; }
+#setBtn, .sheet-close, .more-btn { display: none; }
+.set-body { display: grid; gap: 14px; }
+.set-body .skill { justify-content: space-between; font-size: 15px; color: var(--fg); }
+.set-body .skill select { font-size: 15px; padding: 8px 12px; }
+
+/* Phones: the page always fits the screen; nothing scrolls except the panels */
+body.phone { overflow: hidden; }
+body.phone .shell { height: 100dvh; display: grid; grid-template-rows: auto minmax(0, 1fr); }
+body.phone .topbar { flex-wrap: nowrap; gap: 8px; padding: 6px 10px; padding-top: calc(6px + env(safe-area-inset-top, 0px)); }
+body.phone .brand { margin-right: 0; }
+body.phone .brand-name, body.phone #topSettings, body.phone #aboutBtn, body.phone .table-foot, body.phone .hint, body.phone .stats { display: none; }
+body.phone #setBtn { display: inline-flex; }
+body.phone .topbar .seg button { padding: 5px 8px; font-size: 13px; }
+body.phone .top-actions button { padding: 6px 9px; font-size: 13px; }
+body.phone .stage { gap: 8px; padding: 8px 10px; padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px)); position: relative; }
+body.phone .panel { padding: 12px; gap: 10px; }
+body.phone .speed-out { min-width: 0; }
+/* landscape: table fits the height, narrow panel beside it */
+body.landscape .stage { grid-template-columns: minmax(0, 1fr) 280px; }
+/* portrait: upright table above a compact dock; the full panel slides up over the table */
+body.portrait .stage { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
+body.portrait .side { overflow: visible; gap: 6px; }
+body.portrait .side:not(.open) .tabs, body.portrait .side:not(.open) #coach, body.portrait .side:not(.open) #history, body.portrait .side:not(.open) #callHead, body.portrait .side:not(.open) #speedSeg, body.portrait .side:not(.open) #spinRow .eyebrow, body.portrait .side:not(.open) .row > .eyebrow { display: none !important; }
+body.portrait .side:not(.open) .status-bar { padding: 8px 12px; }
+body.portrait .side:not(.open) .status, body.landscape .status { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 13px; }
+body.portrait .side:not(.open) .status-bar { padding: 6px 10px; }
+body.portrait .side:not(.open) #callPanel { padding: 8px; gap: 6px; }
+body.portrait .side:not(.open) .call-box, body.landscape .call-box { padding: 5px 8px; font-size: 13px; }
+body.phone .call-box > span > .muted { display: none; }
+body.phone .call-box button { padding: 6px 10px; font-size: 13px; }
+body.phone #spinSeg button { padding: 5px 8px; }
+body.phone .speed-ctl input[type=range] { height: 18px; }
+body.phone .actions button { padding: 9px 8px; }
+/* landscape: same compact controls so Shoot and Ask fit without scrolling */
+body.landscape #callHead, body.landscape #speedSeg, body.landscape .row > .eyebrow { display: none !important; }
+body.landscape .status-bar { padding: 8px 10px; }
+body.landscape .tabs button { padding: 5px 8px; }
+body.landscape .side { gap: 6px; }
+body.landscape .status { -webkit-line-clamp: 1 !important; }
+body.landscape .status-bar { padding: 6px 10px; }
+body.landscape .tabs { padding: 2px; }
+body.landscape .tabs button { padding: 4px 8px; font-size: 13px; }
+body.landscape #callPanel { padding: 8px; gap: 6px; }
+body.landscape #spinSeg button { padding: 4px 6px; font-size: 13px; }
+body.landscape .actions { flex-wrap: nowrap; }
+body.landscape .actions button { flex: 1 1 0; padding: 9px 6px; font-size: 13px; }
+body.landscape .speed-out { font-size: 11px; }
+body.portrait .side:not(.open) #callPanel[hidden] { display: grid !important; }
+body.portrait .more-btn { display: inline-flex; justify-content: center; flex: 0 0 auto !important; }
+body.portrait .actions button { flex: 1 1 0; padding: 10px 8px; }
+body.portrait .side.open { position: absolute; left: 0; right: 0; bottom: 0; height: 62%; z-index: 20; overflow-y: auto; padding: 10px 10px calc(10px + env(safe-area-inset-bottom, 0px)); background: rgba(5, 6, 8, 0.97); border-top: 1px solid var(--line); border-radius: 18px 18px 0 0; box-shadow: 0 -20px 50px rgba(0,0,0,0.6); }
+body.portrait .side.open .sheet-close { display: block; align-self: center; padding: 6px 18px; font-size: 13px; }
+body.portrait .side.open .more-btn { display: none; }
+
 </style>
 </head>
 <body>
 
 <div class="shell">
   <header class="topbar">
-    <div class="brand"><span class="brand-ball" aria-hidden="true"></span>Shot Caller</div>
+    <div class="brand"><span class="brand-ball" aria-hidden="true"></span><span class="brand-name">Shot Caller</span></div>
     <div class="seg" id="modeSeg" role="group" aria-label="Game"></div>
-    <label class="skill" for="skillSel">Skill
+    <span class="top-settings" id="topSettings">
+    <label class="skill" for="skillSel" id="skillLbl">Skill
       <select id="skillSel">
         <option value="beginner">Beginner</option>
         <option value="intermediate" selected>Intermediate</option>
@@ -196,10 +253,12 @@ dialog.about::backdrop { background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(4
         <option value="mid">Mid-rack</option>
       </select>
     </label>
+    </span>
     <span class="spacer"></span>
     <div class="top-actions">
       <button id="newBtn" type="button">New rack</button>
       <button id="retryBtn" type="button" disabled>Undo shot</button>
+      <button id="setBtn" type="button" class="ghost" aria-haspopup="dialog">Settings</button>
       <button id="aboutBtn" type="button" class="ghost" aria-haspopup="dialog">About</button>
     </div>
   </header>
@@ -222,7 +281,8 @@ dialog.about::backdrop { background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(4
       </div>
     </div>
 
-    <aside class="side">
+    <aside class="side" id="side">
+      <button type="button" id="sheetClose" class="sheet-close">Close ▾</button>
       <div class="status-bar" aria-live="polite"><p class="status" id="status">Loading table…</p></div>
       <div class="seg tabs" role="tablist" aria-label="Panels">
         <button type="button" role="tab" id="tabCall" aria-controls="callPanel" aria-selected="true">Your call</button>
@@ -246,6 +306,7 @@ dialog.about::backdrop { background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(4
         <div class="actions">
           <button id="shootBtn" class="primary" type="button">Shoot my call</button>
           <button id="askBtn" type="button">Ask the coach</button>
+          <button id="moreBtn" type="button" class="more-btn">Coach ▴</button>
         </div>
         <p class="hint">Click one of your balls, then a pocket, or drag on the table to aim anywhere. Slide for any speed from a feather touch to a power shot; the presets are 1.5, 3, 5 and 8 mph.</p>
         <div class="stats" id="stats">Calls graded: 0</div>
@@ -258,6 +319,11 @@ dialog.about::backdrop { background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(4
     </aside>
   </main>
 </div>
+
+<dialog class="about settings" id="setDlg" aria-labelledby="setTitle">
+  <div class="about-head"><h2 id="setTitle">Settings</h2><button type="button" id="setClose" class="ghost">Close</button></div>
+  <div class="about-body"><div class="set-body" id="setBody"></div><button type="button" id="setAbout">About Shot Caller</button></div>
+</dialog>
 
 <dialog class="about" id="aboutDlg" aria-labelledby="aboutTitle">
   <div class="about-head"><h2 id="aboutTitle">About Shot Caller</h2><button type="button" id="aboutClose" class="ghost">Close</button></div>
@@ -848,19 +914,53 @@ function genRack(mode, afterBreak) {
 }
 
 // ---------- Drawing ----------
+// Phones get their own layout: portrait stands the table upright (ROT) above a compact dock;
+// landscape fits the table to the screen height with a narrow panel beside it.
+let PHONE = false, ROT = false;
+function applyLayout() {
+  const w = window.innerWidth, h = window.innerHeight;
+  PHONE = Math.min(w, h) <= 560 || w <= 760;
+  ROT = PHONE && h > w;
+  document.body.classList.toggle('phone', PHONE);
+  document.body.classList.toggle('portrait', ROT);
+  document.body.classList.toggle('landscape', PHONE && !ROT);
+  const holder = PHONE ? $('setBody') : $('topSettings');
+  ['skillLbl', 'oppLbl', 'nineLbl'].forEach(id => { if ($(id).parentElement !== holder) holder.appendChild($(id)); });
+  const hist = $('history'), area = document.querySelector('.table-area');
+  if (PHONE && hist.parentElement !== $('side')) $('side').insertBefore(hist, document.querySelector('#side .tabs'));
+  if (!PHONE && hist.parentElement !== area) area.insertBefore(hist, document.querySelector('.table-foot'));
+  if (!ROT) closeSheet();
+}
+function openSheet() { if (!ROT || $('side').classList.contains('open')) return; const st = document.querySelector('.stage'); st.style.gridTemplateRows = `minmax(0, 1fr) ${$('side').offsetHeight}px`; $('side').classList.add('open'); }
+function closeSheet() { const sd = $('side'); if (!sd.classList.contains('open')) return; sd.classList.remove('open'); document.querySelector('.stage').style.gridTemplateRows = ''; sd.scrollTop = 0; }
+$('moreBtn').addEventListener('click', () => { openSheet(); if (tab === 'call') showTab('coach'); });
+$('sheetClose').addEventListener('click', closeSheet);
+$('setBtn').addEventListener('click', () => { const d = $('setDlg'); if (d.showModal) d.showModal(); else d.setAttribute('open', ''); });
+$('setClose').addEventListener('click', () => $('setDlg').close());
+$('setAbout').addEventListener('click', () => { $('setDlg').close(); $('aboutBtn').click(); });
 function resize() {
+  applyLayout();
   // Fit the table into what's left of the column after the history bar and legend
   const area = document.querySelector('.table-area'), box = $('tableWrap'), TW = W + 2 * RAIL, TH = H + 2 * RAIL;
   const hist = $('history'), foot = document.querySelector('.table-foot');
-  const availH = area.clientHeight - foot.offsetHeight - 10 - (hist.hidden ? 0 : hist.offsetHeight + 10);
-  const fit = window.matchMedia('(min-width: 900px)').matches && availH > 60;
-  SC = fit ? Math.min(box.clientWidth / TW, availH / TH) : box.clientWidth / TW;
-  const w = TW * SC, h = TH * SC, dpr = window.devicePixelRatio || 1;
+  const histH = hist.parentElement === area && !hist.hidden ? hist.offsetHeight + 10 : 0;
+  const availH = area.clientHeight - (foot.offsetHeight ? foot.offsetHeight + 10 : 0) - histH;
+  const fit = (PHONE || window.matchMedia('(min-width: 900px)').matches) && availH > 60;
+  const DW = ROT ? TH : TW, DH = ROT ? TW : TH;
+  SC = fit ? Math.min(box.clientWidth / DW, availH / DH) : box.clientWidth / DW;
+  const w = DW * SC, h = DH * SC, dpr = window.devicePixelRatio || 1;
   canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
   canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
   draw();
 }
-function setT() { const dpr = window.devicePixelRatio || 1; ctx.setTransform(dpr * SC, 0, 0, dpr * SC, RAIL * dpr * SC, RAIL * dpr * SC); }
+function setT() {
+  const dpr = window.devicePixelRatio || 1, k = dpr * SC;
+  // upright table on phones in portrait: table x runs down the screen, table y runs right to left
+  if (ROT) ctx.setTransform(0, k, -k, 0, (H + RAIL) * k, RAIL * k);
+  else ctx.setTransform(k, 0, 0, k, RAIL * k, RAIL * k);
+}
+// Text and ball faces stay upright when the table is rotated
+function upright(x, y) { ctx.translate(x, y); if (ROT) ctx.rotate(-Math.PI / 2); }
 
 function drawTable() {
   // satin black rails
@@ -902,8 +1002,9 @@ function drawTable() {
 }
 function drawDiamondNumbers() {
   ctx.save(); ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.font = '600 1.15px "Helvetica Neue", Helvetica, Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  for (const k of [1, 2, 3, 5, 6, 7]) { ctx.fillText(String(k), W * k / 8, -RAIL / 2 - 2.2); ctx.fillText(String(k), W * k / 8, H + RAIL / 2 + 2.2); }
-  for (const k of [1, 2, 3]) { ctx.fillText(String(k), -RAIL / 2 - 2.0, H * k / 4); ctx.fillText(String(k), W + RAIL / 2 + 2.0, H * k / 4); }
+  const t = (s, x, y) => { ctx.save(); upright(x, y); ctx.fillText(s, 0, 0); ctx.restore(); };
+  for (const k of [1, 2, 3, 5, 6, 7]) { t(String(k), W * k / 8, -RAIL / 2 - 2.2); t(String(k), W * k / 8, H + RAIL / 2 + 2.2); }
+  for (const k of [1, 2, 3]) { t(String(k), -RAIL / 2 - 2.0, H * k / 4); t(String(k), W + RAIL / 2 + 2.0, H * k / 4); }
   ctx.restore();
 }
 function diamond(x, y) {
@@ -916,6 +1017,7 @@ function roundRect(x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.a
 
 function drawBall(x, y, id, alpha = 1) {
   ctx.save(); ctx.globalAlpha = alpha;
+  upright(x, y); x = 0; y = 0;
   // soft contact shadow on the cloth
   const sg = ctx.createRadialGradient(x + 0.35, y + 0.45, 0.1, x + 0.35, y + 0.45, R * 1.3);
   sg.addColorStop(0, 'rgba(0,10,30,0.5)'); sg.addColorStop(1, 'rgba(0,10,30,0)');
@@ -965,7 +1067,7 @@ function path(pts, color, w) {
   ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]); for (const p of pts) ctx.lineTo(p[0], p[1]); ctx.stroke(); ctx.restore();
 }
 function label(x, y, text, color) {
-  ctx.save(); ctx.font = '700 1.35px "Helvetica Neue", Helvetica, Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.save(); upright(x, y); x = 0; y = 0; ctx.font = '700 1.35px "Helvetica Neue", Helvetica, Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   const w = ctx.measureText(text).width + 0.9;
   ctx.fillStyle = 'rgba(5,14,30,0.85)'; roundRect(x - w / 2, y - 0.95, w, 1.9, 0.5); ctx.fill();
   ctx.fillStyle = color; ctx.fillText(text, x, y + 0.05); ctx.restore();
@@ -1167,6 +1269,7 @@ function setStatus(html) { $('status').innerHTML = html; }
 let tab = 'call';
 function showTab(t) {
   tab = t;
+  if (t === 'coach' && ROT) openSheet();
   $('tabCall').setAttribute('aria-selected', String(t === 'call'));
   $('tabCoach').setAttribute('aria-selected', String(t === 'coach'));
   $('callPanel').hidden = t !== 'call';
@@ -1957,6 +2060,7 @@ function run(angle, v, s, ctxInfo) {
   if (isKick()) lastKick = { cue: { ...state.balls[0] }, firstHit: r.firstHit, gap: Math.max(0, r.minGap), rail: r.firstRail ? railByKey(r.firstRail.side) : null,
     diamond: r.firstRail ? diamondOf(railByKey(r.firstRail.side), r.firstRail) : 0, hit: r.firstHit === KICK_T && r.cueRails >= 1 };
   busy = true; preview = null; updateButtons();
+  closeSheet();
   setStatus('Shooting…');
   const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   anim = { frames: r.frames, i: 0 };
@@ -2178,7 +2282,7 @@ function judgeOpp(r, plan, group, before) {
 }
 function opponentTurn(bih, chain, from) {
   if (gameOver || !oppOn()) return;
-  busy = true; updateButtons(); renderCoach();
+  busy = true; updateButtons(); renderCoach(); closeSheet();
   setStatus(`<strong>Opponent (${oppName()})</strong> is ${bih || !state.balls[0].on ? 'placing the cue ball' : 'lining up a shot'}…`);
   setTimeout(() => {
     const group = oppGrp();
@@ -2216,7 +2320,10 @@ function opponentTurn(bih, chain, from) {
 }
 
 // ---------- Pointer ----------
-function toTable(e) { const rc = canvas.getBoundingClientRect(); return { x: (e.clientX - rc.left) / SC - RAIL, y: (e.clientY - rc.top) / SC - RAIL }; }
+function toTable(e) {
+  const rc = canvas.getBoundingClientRect(), X = (e.clientX - rc.left) / SC, Y = (e.clientY - rc.top) / SC;
+  return ROT ? { x: Y - RAIL, y: H + RAIL - X } : { x: X - RAIL, y: Y - RAIL };
+}
 canvas.addEventListener('pointerdown', e => {
   if (ballInHand && !busy && !reviewing) { placeMyCue(toTable(e)); return; }
   if (busy || turnOver || reviewing || !state.balls[0].on) return;
@@ -2241,7 +2348,8 @@ canvas.addEventListener('pointerup', e => {
   if (moved) { setStatus('Free aim set. The yellow line shows the contact point and where the object ball goes. Shoot when ready.'); return; }
   const p = toTable(e);
   const targets = targetsFor(state.balls, state.group);
-  const hitBall = targets.find(b => Math.hypot(b.x - p.x, b.y - p.y) < D * 1.1);
+  const tapR = Math.max(D * 1.1, 22 / SC);
+  const hitBall = targets.sort((a, b) => Math.hypot(a.x - p.x, a.y - p.y) - Math.hypot(b.x - p.x, b.y - p.y)).find(b => Math.hypot(b.x - p.x, b.y - p.y) < tapR);
   if (hitBall) { call = { t: hitBall.id, pk: null, safety: false, aim: null }; callChanged(); setStatus(`${hitBall.id}-ball selected. Now click a pocket.`); return; }
   const other = state.balls.find(b => b.on && b.id !== 0 && Math.hypot(b.x - p.x, b.y - p.y) < D * 1.1);
   if (other) {
