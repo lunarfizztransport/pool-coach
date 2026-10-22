@@ -3,7 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Shot Caller</title>
+<title>Cue Coach</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#000000">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Cue Coach">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
 <style>
 /* Layout: a one-screen app. Top bar for game, skill and rack controls; the table fills the left and
    scales to fit; the call/coach panel scrolls on its own at the right. Stacks and scrolls on phones.
@@ -170,6 +178,10 @@ button, select, input { touch-action: manipulation; }
 .top-settings { display: contents; }
 #setBtn, .sheet-close, .more-btn { display: none; }
 .set-body { display: grid; gap: 14px; }
+.install-box { display: grid; gap: 8px; }
+.install-box h3 { margin: 0; font-size: 15px; font-weight: 600; }
+.install-box p { margin: 0; color: var(--muted); }
+.install-box button { justify-self: start; }
 .set-body .skill { justify-content: space-between; font-size: 15px; color: var(--fg); }
 .set-body .skill select { font-size: 15px; padding: 8px 12px; }
 
@@ -228,7 +240,7 @@ body.portrait .side.open .more-btn { display: none; }
 
 <div class="shell">
   <header class="topbar">
-    <div class="brand"><span class="brand-ball" aria-hidden="true"></span><span class="brand-name">Shot Caller</span></div>
+    <div class="brand"><span class="brand-ball" aria-hidden="true"></span><span class="brand-name">Cue Coach</span></div>
     <div class="seg" id="modeSeg" role="group" aria-label="Game"></div>
     <span class="top-settings" id="topSettings">
     <label class="skill" for="skillSel" id="skillLbl">Skill
@@ -258,6 +270,7 @@ body.portrait .side.open .more-btn { display: none; }
     <div class="top-actions">
       <button id="newBtn" type="button">New rack</button>
       <button id="retryBtn" type="button" disabled>Undo shot</button>
+      <button id="installBtn" type="button" class="ghost" hidden>Install app</button>
       <button id="setBtn" type="button" class="ghost" aria-haspopup="dialog">Settings</button>
       <button id="aboutBtn" type="button" class="ghost" aria-haspopup="dialog">About</button>
     </div>
@@ -322,14 +335,19 @@ body.portrait .side.open .more-btn { display: none; }
 
 <dialog class="about settings" id="setDlg" aria-labelledby="setTitle">
   <div class="about-head"><h2 id="setTitle">Settings</h2><button type="button" id="setClose" class="ghost">Close</button></div>
-  <div class="about-body"><div class="set-body" id="setBody"></div><button type="button" id="setAbout">About Shot Caller</button></div>
+  <div class="about-body"><div class="set-body" id="setBody"></div><section class="install-box"><h3>Install as an app</h3><p class="install-how"></p><button type="button" class="install-go primary" hidden>Install app</button></section><button type="button" id="setAbout">About Cue Coach</button></div>
 </dialog>
 
 <dialog class="about" id="aboutDlg" aria-labelledby="aboutTitle">
-  <div class="about-head"><h2 id="aboutTitle">About Shot Caller</h2><button type="button" id="aboutClose" class="ghost">Close</button></div>
+  <div class="about-head"><h2 id="aboutTitle">About Cue Coach</h2><button type="button" id="aboutClose" class="ghost">Close</button></div>
   <div class="about-body">
     <section>
       <p>A pool strategy trainer. Pick 8-ball, 9-ball or kick practice, call your shot (ball, pocket, spin, speed, a safety or a push out), then ask the coach. It simulates every option on a 9&nbsp;ft table and tells you what it would play and why. Use it to learn <strong>how to think</strong> about a shot. Treat the percentages as estimates.</p>
+    </section>
+    <section class="install-box">
+      <h3>Install as an app</h3>
+      <p class="install-how"></p>
+      <button type="button" class="install-go primary" hidden>Install app</button>
     </section>
     <section>
       <h3>What the coach weighs</h3>
@@ -2367,6 +2385,34 @@ canvas.addEventListener('pointerup', e => {
     setStatus(g.ok ? `Called the ${call.t} in the ${pocketName(pk)}: a ${Math.round(g.cut)}° cut. Choose spin and speed, then ask the coach or shoot.` : `Called the ${call.t} in the ${pocketName(pk)}, but ${g.why}.`);
   }
 });
+
+// ---------- Installable app ----------
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+}
+let installEvt = null;
+const standalone = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const isIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+function renderInstall() {
+  const how = standalone() ? 'You’re using the installed app. It opens full screen and works offline.'
+    : installEvt ? 'Add Cue Coach to your home screen or dock. It opens full screen and works offline.'
+    : isIOS() ? 'In Safari, tap the Share button, then “Add to Home Screen.” It opens full screen and works offline.'
+    : 'In Chrome or Edge, use Install in the address bar or the browser menu. On iPhone, use Safari’s Share button, then “Add to Home Screen.”';
+  document.querySelectorAll('.install-how').forEach(p => { p.textContent = how; });
+  document.querySelectorAll('.install-go').forEach(b => { b.hidden = !installEvt || standalone(); });
+  $('installBtn').hidden = !installEvt || standalone() || PHONE;
+}
+async function doInstall() {
+  if (!installEvt) return;
+  installEvt.prompt();
+  try { await installEvt.userChoice; } catch (e) {}
+  installEvt = null; renderInstall();
+}
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; renderInstall(); });
+window.addEventListener('appinstalled', () => { installEvt = null; renderInstall(); });
+$('installBtn').addEventListener('click', doInstall);
+document.querySelectorAll('.install-go').forEach(b => b.addEventListener('click', doInstall));
+renderInstall();
 
 window.addEventListener('resize', resize);
 if (window.ResizeObserver) { const ro = new ResizeObserver(() => resize()); ro.observe(document.querySelector('.table-area')); ro.observe($('history')); }

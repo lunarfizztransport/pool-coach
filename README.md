@@ -1,6 +1,6 @@
 # pool-coach
 
-**Shot Caller: a pool strategy trainer. Call your shot, then see what a coach
+**Cue Coach: a pool strategy trainer. Call your shot, then see what a coach
 would play and why.**
 
 **Try it: [lunarfizztransport.github.io/pool](https://lunarfizztransport.github.io/pool/)**
@@ -89,9 +89,21 @@ curves within about half a degree.
 strategy thresholds. **Not modeled:** left/right English, squirt and swerve,
 jump and masse shots, banks and combinations as options, pocket rattles.
 
+## Install it as an app
+
+Open [lunarfizztransport.github.io/pool](https://lunarfizztransport.github.io/pool/) and:
+
+- **iPhone / iPad:** in Safari, tap Share, then **Add to Home Screen**.
+- **Android, or Chrome / Edge on a computer:** tap **Install app** (in Settings, or the browser's
+  menu / address bar).
+
+It opens full screen with its own icon and works offline. A small service worker (`sw.js`) saves
+the game, always loading the newest version when you're online.
+
 ## Run it locally
 
-Open `index.html` in a browser. That's it.
+Open `index.html` in a browser. The installable-app parts (`manifest.webmanifest`, `sw.js`,
+`icons/`) only work when it's served over HTTPS or from `localhost`.
 
 ## On my website
 
@@ -100,5 +112,5 @@ serves a copy of this page at `/pool/` and shows it in the **Pool Coach**
 window. After changing `index.html` here, copy it over:
 
 ```bash
-cp index.html ../collage-site/pool/index.html
+cp index.html manifest.webmanifest sw.js ../collage-site/pool/ && cp icons/*.png ../collage-site/pool/icons/
 ```
