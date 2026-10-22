@@ -1311,7 +1311,8 @@ $('tabCoach').addEventListener('click', () => showTab('coach'));
 function updateButtons() {
   $('askBtn').hidden = coachOff;
   $('askBtn').disabled = busy || turnOver || analyzing || revealed || reviewing;
-  $('shootBtn').disabled = busy || turnOver || reviewing;
+  $('shootBtn').disabled = busy || reviewing || (turnOver && !pendingOpp);
+  $('shootBtn').textContent = pendingOpp ? 'Opponent’s turn ▶' : 'Shoot my call';
   $('safeBtn').disabled = busy || turnOver || reviewing;
   $('pushBtn').hidden = !(isNine() && pushOk) || ballInHand;
   $('bihBtn').hidden = !ballInHand || reviewing;
@@ -1422,7 +1423,7 @@ function renderCoach() {
   const reviewBtn = (lastShot && !busy ? `<div class="actions"><button type="button" id="reviewBtn">Review and ask about shot ${lastShot.n}</button>${myLine().length > 1 ? `<button type="button" id="runBtn">Review my whole run (${myLine().length} shots)</button>` : ''}</div>` : '');
   if (analyzing) { el.innerHTML = coachHead('Coach') + lastCard + reviewBtn + '<p class="thinking">Simulating every option…</p>'; return; }
   if (!revealed || !analysis) {
-    el.innerHTML = coachHead('Coach') + (turnOver ? '<p class="thinking">Turn over. Undo the shot, go back to any shot in Rack history, or rack a new table.</p>' : askHere || '<p class="thinking">Make your call on the Your call tab, then ask the coach.</p>') + lastCard + reviewBtn;
+    el.innerHTML = coachHead('Coach') + (turnOver ? `<p class="thinking">${pendingOpp ? 'Your turn is over. Undo to try that shot again, or press Opponent’s turn to let them shoot from where the balls are now.' : 'Turn over. Undo the shot, go back to any shot in Rack history, or rack a new table.'}</p>` : askHere || '<p class="thinking">Make your call on the Your call tab, then ask the coach.</p>') + lastCard + reviewBtn;
     return;
   }
   let html = coachHead(reviewing && reviewRec ? `Coach · ${reviewRec.who === 'opp' ? 'opponent’s ' : ''}shot ${reviewRec.n}` : 'Coach');
@@ -1957,7 +1958,7 @@ function newRack() {
   const afterBreak = mode === 'nine' && (nineStart === 'break' || (nineStart === 'mixed' && Math.random() < 0.35));
   state = { balls: mode === 'kick' ? genKick() : genRack(mode, afterBreak), group: mode === 'nine' ? 'nine' : mode === 'kick' ? 'kick' : 'solids', afterBreak };
   lastKick = null;
-  rackShots = []; tip = null; syncLine(); runView = false; turnOver = false; gameOver = false; ballInHand = false;
+  rackShots = []; tip = null; syncLine(); runView = false; turnOver = false; gameOver = false; ballInHand = false; pendingOpp = null;
   pushOk = afterBreak;
   $('coachDot').hidden = true;
   resetCall(); setStatus(defaultStatus()); startAnalysis(); draw();
@@ -1998,7 +1999,7 @@ function playFrom(rec) {
   if (reviewing) exitReview(true);
   tip = rec.parent; syncLine();
   state.balls = rec.balls.map(b => ({ ...b }));
-  pushOk = !!rec.pushOk; turnOver = false; runView = false; lastKick = null; gameOver = false; ballInHand = false;
+  pushOk = !!rec.pushOk; turnOver = false; runView = false; lastKick = null; gameOver = false; ballInHand = false; pendingOpp = null;
   if (rec.who === 'opp') { resetCall(); showTab('call'); draw(); opponentTurn(rec.bih, [], rec); return; }
   resetCall();
   setStatus(`Back to the position before shot ${rec.n}. ` + defaultStatus());
@@ -2009,7 +2010,9 @@ function playFrom(rec) {
 $('allOpts').addEventListener('change', draw);
 
 $('shootBtn').addEventListener('click', () => {
-  if (busy || turnOver) return;
+  if (busy || reviewing) return;
+  if (pendingOpp) { const f = pendingOpp.foul; pendingOpp = null; opponentTurn(f, []); return; }
+  if (turnOver) return;
   const sp = SPINS.find(s => s.k === spin), sd = speedObj(speed);
   const cue = state.balls[0];
   if (isKick()) {
@@ -2196,9 +2199,8 @@ function finishTurn(msg, cont) {
     revealed = false; analysis = null;
     if (over) { gameOver = true; setStatus(msg + ' <span class="muted">Rack a new table to play again.</span>'); renderCoach(); }
     else if (oppOn()) {
-      setStatus(msg + ' <span class="muted">Opponent’s turn…</span>'); renderCoach();
-      const foul = /Foul|Scratch/.test(msg);
-      setTimeout(() => opponentTurn(foul, []), 700);
+      pendingOpp = { foul: /Foul|Scratch/.test(msg) };
+      setStatus(msg + ' <span class="muted">Undo to try that shot again, or press <strong>Opponent’s turn</strong> to let them shoot from here.</span>'); renderCoach();
     } else { setStatus(msg + ' <span class="muted">Undo the shot or rack a new table.</span>'); renderCoach(); }
   }
   updateButtons(); draw();
@@ -2208,6 +2210,7 @@ function finishTurn(msg, cont) {
 // Their level sets how they choose (beginner: easiest pot; intermediate: position, with misjudgment;
 // advanced: the coach's choice) and how steady their stroke is (aim error from the skill table, plus speed error).
 let oppLevel = 'intermediate', gameOver = false, ballInHand = false;
+let pendingOpp = null; // your turn is over and the opponent shoots when you say so
 try { const v = localStorage.getItem('shotcaller.opp'); if (['off', 'beginner', 'intermediate', 'advanced'].includes(v)) oppLevel = v; } catch (e) {}
 $('oppSel').value = oppLevel;
 $('oppSel').addEventListener('change', e => { oppLevel = e.target.value; try { localStorage.setItem('shotcaller.opp', oppLevel); } catch (err) {} });
@@ -2299,6 +2302,7 @@ function judgeOpp(r, plan, group, before) {
   return { short: plan.kind === 'shot' ? `missed ${plan.desc}` : `played ${plan.desc}` };
 }
 function opponentTurn(bih, chain, from) {
+  pendingOpp = null;
   if (gameOver || !oppOn()) return;
   busy = true; updateButtons(); renderCoach(); closeSheet();
   setStatus(`<strong>Opponent (${oppName()})</strong> is ${bih || !state.balls[0].on ? 'placing the cue ball' : 'lining up a shot'}…`);
